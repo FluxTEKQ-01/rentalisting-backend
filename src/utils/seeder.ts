@@ -53,7 +53,7 @@ export async function seedDatabase(): Promise<void> {
       {
         title: 'Premium 3 BHK Apartment in Indiranagar',
         description: 'Luxurious 3 bedroom apartment situated in the heart of Indiranagar. Fully furnished with modern amenities, modular kitchen, and private balcony. Located near major restaurants, shops, and metro station.',
-        propertyType: 'apartment',
+        propertyType: 'house_apartment',
         price: 45000,
         currency: 'INR',
         bedrooms: 3,
@@ -113,7 +113,7 @@ export async function seedDatabase(): Promise<void> {
       {
         title: 'Cozy 1 BHK PG/Hostel near Koramangala',
         description: 'Single occupancy fully-serviced room near Koramangala 4th block. Includes high-speed Wi-Fi, 3 meals daily, laundry services, and daily housekeeping. Best suited for working professionals and students.',
-        propertyType: 'pg_hostel',
+        propertyType: 'coworking',
         price: 12000,
         currency: 'INR',
         bedrooms: 1,

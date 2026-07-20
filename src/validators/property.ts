@@ -21,13 +21,21 @@ export const createPropertySchema = z.object({
       .string()
       .min(20, 'Description must be at least 20 characters'),
     propertyType: z.enum([
-      'apartment',
-      'house',
-      'villa',
-      'commercial',
       'office',
-      'land',
-      'pg_hostel',
+      'shop_retail',
+      'warehouse',
+      'house_apartment',
+      'villa',
+      'open_plot_land',
+      'event_venue',
+      'coworking',
+      'commercial_building',
+      'parking',
+      'showroom',
+      'industrial',
+      'hotel_banquet',
+      'shooting_location',
+      'storage',
     ]),
     price: z.number().min(0, 'Price cannot be negative'),
     maxPrice: z.number().min(0).optional(),
@@ -50,7 +58,7 @@ export const updatePropertySchema = z.object({
       .optional(),
     description: z.string().min(20).optional(),
     propertyType: z
-      .enum(['apartment', 'house', 'villa', 'commercial', 'office', 'land', 'pg_hostel'])
+      .enum(['office', 'shop_retail', 'warehouse', 'house_apartment', 'villa', 'open_plot_land', 'event_venue', 'coworking', 'commercial_building', 'parking', 'showroom', 'industrial', 'hotel_banquet', 'shooting_location', 'storage'])
       .optional(),
     price: z.number().min(0).optional(),
     maxPrice: z.number().min(0).optional(),
@@ -77,7 +85,7 @@ export const propertyQuerySchema = z.object({
     keyword: z.string().optional(),
     location: z.string().optional(),
     propertyType: z
-      .enum(['apartment', 'house', 'villa', 'commercial', 'office', 'land', 'pg_hostel'])
+      .enum(['office', 'shop_retail', 'warehouse', 'house_apartment', 'villa', 'open_plot_land', 'event_venue', 'coworking', 'commercial_building', 'parking', 'showroom', 'industrial', 'hotel_banquet', 'shooting_location', 'storage'])
       .optional(),
     minPrice: z.string().optional(),
     maxPrice: z.string().optional(),

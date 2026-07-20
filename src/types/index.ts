@@ -12,13 +12,21 @@ export type PropertyStatus =
   | 'archived';
 
 export type PropertyCategory =
-  | 'apartment'
-  | 'house'
-  | 'villa'
-  | 'commercial'
   | 'office'
-  | 'land'
-  | 'pg_hostel';
+  | 'shop_retail'
+  | 'warehouse'
+  | 'house_apartment'
+  | 'villa'
+  | 'open_plot_land'
+  | 'event_venue'
+  | 'coworking'
+  | 'commercial_building'
+  | 'parking'
+  | 'showroom'
+  | 'industrial'
+  | 'hotel_banquet'
+  | 'shooting_location'
+  | 'storage';
 
 export interface JwtPayload {
   userId: string;

@@ -17,7 +17,7 @@ export function initInMemoryStore() {
       _id: 'mock_indiranagar_apt_1',
       title: 'Premium 3 BHK Apartment in Indiranagar',
       description: 'Luxurious 3 bedroom apartment situated in the heart of Indiranagar. Fully furnished with modern amenities, modular kitchen, and private balcony. Located near major restaurants, shops, and metro station.',
-      propertyType: 'apartment',
+      propertyType: 'house_apartment',
       price: 45000,
       currency: 'INR',
       bedrooms: 3,
@@ -74,7 +74,16 @@ export function initInMemoryStore() {
 
 export function getFallbackImagesForPropertyType(propertyType: string): { url: string; publicId: string }[] {
   const imagesMap: Record<string, string[]> = {
-    apartment: [
+    office: [
+      'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&h=800&q=80',
+    ],
+    shop_retail: [
+      'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&h=800&q=80',
+    ],
+    warehouse: [
+      'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1200&h=800&q=80',
+    ],
+    house_apartment: [
       'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=1200&h=800&q=80',
       'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=1200&h=800&q=80',
     ],
@@ -82,21 +91,35 @@ export function getFallbackImagesForPropertyType(propertyType: string): { url: s
       'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1200&h=800&q=80',
       'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&h=800&q=80',
     ],
-    house: [
-      'https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=1200&h=800&q=80',
-      'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1200&h=800&q=80',
-    ],
-    commercial: [
-      'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&h=800&q=80',
-    ],
-    office: [
-      'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&h=800&q=80',
-    ],
-    land: [
+    open_plot_land: [
       'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1200&h=800&q=80',
     ],
-    pg_hostel: [
-      'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=1200&h=800&q=80',
+    event_venue: [
+      'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1200&h=800&q=80',
+    ],
+    coworking: [
+      'https://images.unsplash.com/photo-1542744173-8e7e53415bb0?auto=format&fit=crop&w=1200&h=800&q=80',
+    ],
+    commercial_building: [
+      'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&h=800&q=80',
+    ],
+    parking: [
+      'https://images.unsplash.com/photo-1573342212426-182bae5e9d0d?auto=format&fit=crop&w=1200&h=800&q=80',
+    ],
+    showroom: [
+      'https://images.unsplash.com/photo-1555633514-ab2cdb4d6c91?auto=format&fit=crop&w=1200&h=800&q=80',
+    ],
+    industrial: [
+      'https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&w=1200&h=800&q=80',
+    ],
+    hotel_banquet: [
+      'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&w=1200&h=800&q=80',
+    ],
+    shooting_location: [
+      'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=1200&h=800&q=80',
+    ],
+    storage: [
+      'https://images.unsplash.com/photo-1594026112284-02bb6f3352fe?auto=format&fit=crop&w=1200&h=800&q=80',
     ],
   };
 
