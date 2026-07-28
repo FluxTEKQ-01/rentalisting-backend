@@ -54,7 +54,7 @@ const propertySchema = new Schema<IProperty>(
     propertyType: {
       type: String,
       required: [true, 'Property type is required'],
-      enum: ['office', 'shop_retail', 'warehouse', 'house_apartment', 'villa', 'open_plot_land', 'event_venue', 'coworking', 'commercial_building', 'parking', 'showroom', 'industrial', 'hotel_banquet', 'shooting_location', 'storage'],
+      enum: ['office', 'shop_retail', 'warehouse', 'house_apartment', 'apartment', 'villa', 'open_plot_land', 'event_venue', 'coworking', 'commercial_building', 'parking', 'showroom', 'industrial', 'hotel_banquet', 'shooting_location', 'storage'],
     },
     price: {
       type: Number,

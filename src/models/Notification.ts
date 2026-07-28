@@ -8,7 +8,8 @@ export type NotificationType =
   | 'feedback_available'
   | 'listing_published'
   | 'new_submission'
-  | 'new_review';
+  | 'new_review'
+  | 'inquiry';
 
 export interface INotification extends Document {
   recipient: mongoose.Types.ObjectId;
@@ -39,6 +40,7 @@ const notificationSchema = new Schema<INotification>(
         'listing_published',
         'new_submission',
         'new_review',
+        'inquiry',
       ],
     },
     title: {

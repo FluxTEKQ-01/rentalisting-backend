@@ -8,6 +8,7 @@ import {
   resubmitProperty,
   deleteProperty,
   getOwnerProperties,
+  contactPropertyOwner,
 } from '../controllers/propertyController.js';
 import { authenticate, optionalAuthenticate } from '../middleware/auth.js';
 import { authorize } from '../middleware/roles.js';
@@ -23,6 +24,7 @@ const router = Router();
 router.get('/', validate(propertyQuerySchema), getProperties);
 router.get('/my-listings', authenticate, authorize('owner'), getOwnerProperties);
 router.get('/:id', optionalAuthenticate, getPropertyById);
+router.post('/:id/contact', contactPropertyOwner);
 router.post('/', authenticate, authorize('owner'), validate(createPropertySchema), createProperty);
 router.put('/:id', authenticate, authorize('owner'), validate(updatePropertySchema), updateProperty);
 router.post('/:id/submit', authenticate, authorize('owner'), submitProperty);

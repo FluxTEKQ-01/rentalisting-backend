@@ -2,7 +2,8 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IReview extends Document {
   property: mongoose.Types.ObjectId;
-  user: mongoose.Types.ObjectId;
+  user?: mongoose.Types.ObjectId;
+  userName?: string;
   rating: number;
   comment: string;
   isApproved: boolean;
@@ -20,7 +21,12 @@ const reviewSchema = new Schema<IReview>(
     user: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      required: [true, 'User is required'],
+      required: false,
+    },
+    userName: {
+      type: String,
+      default: 'Verified Visitor',
+      trim: true,
     },
     rating: {
       type: Number,
@@ -32,18 +38,15 @@ const reviewSchema = new Schema<IReview>(
       type: String,
       required: [true, 'Comment is required'],
       trim: true,
-      minlength: [10, 'Comment must be at least 10 characters'],
     },
     isApproved: {
       type: Boolean,
-      default: false,
+      default: true,
     },
   },
   { timestamps: true }
 );
 
 reviewSchema.index({ property: 1 });
-reviewSchema.index({ user: 1 });
-reviewSchema.index({ property: 1, user: 1 }, { unique: true });
 
 export const Review = mongoose.model<IReview>('Review', reviewSchema);

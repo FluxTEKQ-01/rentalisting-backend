@@ -1,0 +1,563 @@
+Master Prompt – Safe Production Migration from MongoDB Atlas to Supabase PostgreSQL
+Context
+
+You are a Senior Principal Software Architect, Senior Backend Engineer, Database Architect, DevOps Engineer, Cloud Solutions Architect, and Software Migration Specialist.
+
+You are working on an existing production-grade rental marketplace called BookMySpace.
+
+The objective is to migrate the backend database from MongoDB Atlas (Mongoose) to Supabase PostgreSQL while preserving the existing application architecture, business logic, API contracts, authentication flow, Cloudinary integration, deployment strategy, and frontend compatibility.
+
+This is a migration project, not a rewrite.
+
+Existing Technology Stack
+
+Frontend
+
+React
+Next.js
+TypeScript
+Hosted on Vercel
+
+Backend
+
+Node.js
+Express
+TypeScript
+Hosted on Render
+
+Database
+
+Current
+
+MongoDB Atlas
+Mongoose ODM
+
+Target
+
+Supabase PostgreSQL
+
+Image Storage
+
+Cloudinary
+
+Authentication
+
+JWT Access Token
+JWT Refresh Token
+
+Deployment
+
+GitHub
+Render
+Vercel
+Existing Project Requirements
+
+BookMySpace is a rental marketplace serving Warangal.
+
+Users can:
+
+Register
+Login
+Browse properties
+Search rental spaces
+View property details
+Submit enquiries
+List their property
+
+Admins can:
+
+Review listings
+Verify property information
+Approve listings
+Reject listings
+Add rejection remarks
+Publish approved listings
+
+Only verified properties become publicly visible.
+
+Cloudinary stores property images.
+
+Only Cloudinary image URLs are stored in the database.
+
+CRITICAL REQUIREMENTS
+
+This is NOT a rewrite.
+
+The following MUST NOT change unless absolutely necessary.
+
+Do NOT change
+
+REST API endpoints
+Request payloads
+Response payloads
+HTTP status codes
+Route names
+Authentication flow
+JWT implementation
+Middleware
+Validation logic
+Business rules
+Cloudinary integration
+Folder structure (unless creating new migration folders)
+Frontend code
+UI
+Existing functionality
+
+The frontend must continue working without modification.
+
+Primary Goal
+
+Replace only the persistence layer.
+
+Replace
+
+MongoDB Atlas
+
+↓
+
+Mongoose
+
+with
+
+Supabase PostgreSQL
+
+while keeping the rest of the application identical.
+
+Step 1 – Perform a Complete Project Audit
+
+Before changing ANY code:
+
+Analyze the complete backend.
+
+Generate a report containing:
+
+Every MongoDB model
+Every Mongoose schema
+Every controller
+Every service
+Every middleware
+Every route
+Every database query
+Every aggregation
+Every populate()
+Every ObjectId usage
+Every MongoDB dependency
+
+Produce a dependency graph.
+
+Do NOT modify code.
+
+Step 2 – Create Migration Report
+
+Generate a migration report including
+
+Current Architecture
+
+Target Architecture
+
+Database Dependencies
+
+Risk Assessment
+
+Migration Order
+
+Rollback Plan
+
+Estimated Code Changes
+
+Estimated Files Changed
+
+Potential Breaking Changes
+
+Testing Checklist
+
+Step 3 – Design PostgreSQL Schema
+
+Generate normalized PostgreSQL tables.
+
+Expected tables include
+
+users
+
+properties
+
+property_images
+
+enquiries
+
+notifications
+
+refresh_tokens
+
+property_status_history
+
+Use
+
+UUID Primary Keys
+
+Foreign Keys
+
+Indexes
+
+Constraints
+
+CHECK constraints
+
+NOT NULL
+
+UNIQUE
+
+CASCADE rules where appropriate
+
+Timestamp columns
+
+created_at
+
+updated_at
+
+deleted_at (if soft delete is used)
+
+Do NOT denormalize data.
+
+Normalize the schema properly.
+
+Step 4 – Compare MongoDB Models
+
+For every MongoDB model
+
+Generate
+
+Mongo Schema
+
+↓
+
+Equivalent PostgreSQL Table
+
+↓
+
+Migration Notes
+
+↓
+
+Potential Issues
+
+↓
+
+Recommended Indexes
+
+Step 5 – Build Repository Layer
+
+Do NOT allow controllers to communicate directly with Supabase.
+
+Create
+
+Repository Pattern
+
+Architecture
+
+Controller
+
+↓
+
+Repository
+
+↓
+
+Supabase Client
+
+Every repository should encapsulate database access.
+
+Controllers should remain almost unchanged.
+
+Step 6 – Create Supabase Configuration
+
+Create
+
+config/supabase.ts
+
+Initialize
+
+@supabase/supabase-js
+
+using
+
+SUPABASE_URL
+
+SUPABASE_SERVICE_ROLE_KEY
+
+Do NOT expose service role key to frontend.
+
+Only backend uses Service Role.
+
+Step 7 – Keep Cloudinary
+
+Do NOT migrate images.
+
+Cloudinary remains.
+
+Current Flow
+
+Image
+
+↓
+
+Cloudinary
+
+↓
+
+Image URL
+
+↓
+
+MongoDB
+
+New Flow
+
+Image
+
+↓
+
+Cloudinary
+
+↓
+
+Image URL
+
+↓
+
+Supabase PostgreSQL
+
+No image migration required.
+
+Only migrate stored URLs.
+
+Step 8 – Data Migration Strategy
+
+Create migration scripts that
+
+Export MongoDB collections
+
+Transform documents
+
+Generate PostgreSQL inserts
+
+Import data into Supabase
+
+Verify row counts
+
+Generate migration logs
+
+Generate rollback logs
+
+Validate referential integrity
+
+Never delete MongoDB.
+
+MongoDB remains as backup until migration is complete.
+
+Step 9 – Incremental Migration
+
+Do NOT migrate everything simultaneously.
+
+Migrate modules in this order
+
+Properties
+
+↓
+
+Users
+
+↓
+
+Authentication
+
+↓
+
+Enquiries
+
+↓
+
+Notifications
+
+↓
+
+Admin
+
+↓
+
+Remaining Features
+
+After every module
+
+Run validation tests.
+
+Step 10 – Preserve API Compatibility
+
+Ensure
+
+GET endpoints remain identical.
+
+POST payloads remain identical.
+
+PUT payloads remain identical.
+
+DELETE behavior remains identical.
+
+JSON responses remain identical.
+
+Frontend should require zero changes.
+
+Step 11 – Optimize PostgreSQL
+
+Create indexes for
+
+email
+
+owner_id
+
+status
+
+city
+
+property_type
+
+created_at
+
+search filters
+
+Design indexes suitable for
+
+Property Search
+
+Filtering
+
+Sorting
+
+Pagination
+
+Admin Dashboard
+
+Step 12 – Event-Driven Architecture Preparation
+
+Although not implementing it immediately,
+
+Design the backend to support future migration to an event-driven architecture.
+
+Prepare interfaces for future integration with:
+
+Google Cloud Pub/Sub
+
+Cloud Run
+
+Cloud Functions
+
+Eventarc
+
+Background Workers
+
+Email Queue
+
+Notification Queue
+
+Search Indexing Queue
+
+Image Processing Queue
+
+Do NOT implement these services now.
+
+Only architect the code to support them later.
+
+Step 13 – Code Quality
+
+Maintain
+
+SOLID principles
+
+Repository Pattern
+
+Dependency Injection where appropriate
+
+Clean Architecture
+
+DRY
+
+KISS
+
+Single Responsibility Principle
+
+Type Safety
+
+Error Handling
+
+Proper Logging
+
+Reusable Services
+
+Step 14 – Testing
+
+Generate
+
+Migration Test Plan
+
+Database Validation Checklist
+
+API Regression Checklist
+
+Authentication Checklist
+
+Cloudinary Upload Checklist
+
+Property Approval Checklist
+
+Search Validation Checklist
+
+Admin Dashboard Validation Checklist
+
+Step 15 – Rollback Strategy
+
+Generate rollback documentation.
+
+If migration fails,
+
+Application should be able to reconnect to MongoDB Atlas without data loss.
+
+Do NOT delete any MongoDB code until migration is fully verified.
+
+Constraints
+
+Never perform destructive changes.
+
+Never drop MongoDB collections.
+
+Never remove Mongoose until migration is complete.
+
+Never modify frontend.
+
+Never expose Supabase Service Role Key.
+
+Never change API contracts.
+
+Never break authentication.
+
+Never remove Cloudinary.
+
+Never delete production data.
+
+Always preserve backward compatibility.
+
+Deliverables
+
+Before writing migration code, produce:
+
+Architecture Audit Report
+MongoDB Dependency Report
+PostgreSQL Database Design
+Entity Relationship Diagram (ERD)
+Migration Plan
+File-by-File Change List
+Risk Assessment
+Rollback Strategy
+Testing Strategy
+Step-by-Step Implementation Plan
+
+Only after these reports are approved should any code changes begin.Rather than giving this as a single prompt, break the work into phases. Ask the AI IDE to complete the Architecture Audit first and review its output before asking it to generate the schema or modify code. Then proceed to the migration plan, and only after you've reviewed both should you let it implement changes. This review gate catches incorrect assumptions early and greatly reduces the chance of a large, hard-to-debug rewrite.

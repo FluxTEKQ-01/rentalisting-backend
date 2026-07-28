@@ -1,4 +1,5 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { Property } from '../models/Property.js';
 import { Notification } from '../models/Notification.js';
 import { User } from '../models/User.js';
@@ -87,6 +88,10 @@ export function getFallbackImagesForPropertyType(propertyType: string): { url: s
       'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=1200&h=800&q=80',
       'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=1200&h=800&q=80',
     ],
+    apartment: [
+      'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=1200&h=800&q=80',
+      'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=1200&h=800&q=80',
+    ],
     villa: [
       'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1200&h=800&q=80',
       'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&h=800&q=80',
@@ -123,11 +128,89 @@ export function getFallbackImagesForPropertyType(propertyType: string): { url: s
     ],
   };
 
-  const urls = imagesMap[propertyType] || imagesMap.apartment;
+  const urls = imagesMap[propertyType] || imagesMap.house_apartment || imagesMap.office;
   return urls.map((url, index) => ({
     url,
     publicId: `auto_configured_${propertyType}_${index}`
   }));
+}
+
+export function resolvePropertyCoordinates(location: any): { lat: number; lng: number } {
+  if (location?.coordinates?.lat && location?.coordinates?.lng) {
+    const lat = Number(location.coordinates.lat);
+    const lng = Number(location.coordinates.lng);
+    if (!isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0)) {
+      return { lat, lng };
+    }
+  }
+
+  const fullText = [
+    location?.address,
+    location?.city,
+    location?.state,
+    location?.zipCode,
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  const pincodeMap: Record<string, [number, number]> = {
+    '560066': [12.9698, 77.7499], // Whitefield
+    '560038': [12.9784, 77.6408], // Indiranagar
+    '560034': [12.9352, 77.6245], // Koramangala
+    '560102': [12.9121, 77.6446], // HSR Layout
+    '560037': [12.9592, 77.6974], // Marathahalli
+    '560103': [12.9304, 77.6784], // Bellandur
+    '560100': [12.8452, 77.6602], // Electronic City
+    '560041': [12.9250, 77.5938], // Jayanagar
+    '560078': [12.9077, 77.5854], // JP Nagar
+    '500032': [17.4401, 78.3489], // Gachibowli
+    '500081': [17.4483, 78.3915], // Madhapur
+    '500033': [17.4319, 78.4071], // Jubilee Hills
+    '500034': [17.4156, 78.4411], // Banjara Hills
+    '400050': [19.0596, 72.8295], // Bandra
+    '400053': [19.1363, 72.8277], // Andheri
+    '400076': [19.1176, 72.9060], // Powai
+    '122002': [28.4735, 77.0863], // Gurgaon
+    '201301': [28.5708, 77.3260], // Noida
+    whitefield: [12.9698, 77.7499],
+    indiranagar: [12.9784, 77.6408],
+    koramangala: [12.9352, 77.6245],
+    hsr: [12.9121, 77.6446],
+    marathahalli: [12.9592, 77.6974],
+    bellandur: [12.9304, 77.6784],
+    gachibowli: [17.4401, 78.3489],
+    madhapur: [17.4483, 78.3915],
+    bandra: [19.0596, 72.8295],
+    andheri: [19.1363, 72.8277],
+    powai: [19.1176, 72.9060],
+  };
+
+  for (const [key, coords] of Object.entries(pincodeMap)) {
+    if (fullText.includes(key)) {
+      return { lat: coords[0], lng: coords[1] };
+    }
+  }
+
+  const cityKey = (location?.city || '').toLowerCase().trim();
+  const cityMap: Record<string, [number, number]> = {
+    hyderabad: [17.3850, 78.4867],
+    bengaluru: [12.9716, 77.5946],
+    bangalore: [12.9716, 77.5946],
+    mumbai: [19.0760, 72.8777],
+    delhi: [28.6139, 77.2090],
+    chennai: [13.0827, 80.2707],
+    pune: [18.5204, 73.8567],
+    kolkata: [22.5726, 88.3639],
+    gurgaon: [28.4595, 77.0266],
+    noida: [28.5355, 77.3910],
+  };
+
+  if (cityMap[cityKey]) return { lat: cityMap[cityKey][0], lng: cityMap[cityKey][1] };
+  for (const [key, coords] of Object.entries(cityMap)) {
+    if (cityKey.includes(key) || key.includes(cityKey)) {
+      return { lat: coords[0], lng: coords[1] };
+    }
+  }
+
+  return { lat: 17.3850, lng: 78.4867 };
 }
 
 export async function createProperty(
@@ -140,6 +223,10 @@ export async function createProperty(
     // Auto-configure photos if listing manager leaves it blank
     if (!images || images.length === 0) {
       images = getFallbackImagesForPropertyType(propertyType);
+    }
+
+    if (location) {
+      location.coordinates = resolvePropertyCoordinates(location);
     }
 
     if (!isDatabaseConnected) {
@@ -169,6 +256,31 @@ export async function createProperty(
   }
 }
 
+export function expandPropertyTypes(typeQuery: string): string[] {
+  const rawTypes = typeQuery.split(',').map(t => t.trim()).filter(Boolean);
+  const typesSet = new Set<string>();
+
+  for (const t of rawTypes) {
+    typesSet.add(t);
+    if (t === 'house_apartment' || t === 'apartment' || t === 'house' || t === 'apartments') {
+      typesSet.add('house_apartment');
+      typesSet.add('apartment');
+    }
+    if (t === 'shop_retail' || t === 'shop' || t === 'retail') {
+      typesSet.add('shop_retail');
+      typesSet.add('shop');
+      typesSet.add('retail');
+    }
+    if (t === 'open_plot_land' || t === 'plot' || t === 'land') {
+      typesSet.add('open_plot_land');
+      typesSet.add('plot');
+      typesSet.add('land');
+    }
+  }
+
+  return Array.from(typesSet);
+}
+
 export async function getProperties(
   req: AuthRequest,
   res: Response
@@ -184,7 +296,8 @@ export async function getProperties(
       let list = [...inMemoryProperties];
       
       if (query.propertyType) {
-        list = list.filter(p => p.propertyType === query.propertyType);
+        const expandedTypes = expandPropertyTypes(query.propertyType);
+        list = list.filter(p => expandedTypes.includes(p.propertyType));
       }
       if (query.status) {
         const statuses = query.status.split(',');
@@ -201,7 +314,9 @@ export async function getProperties(
         list = list.filter(p => 
           p.title.toLowerCase().includes(kw) || 
           p.description.toLowerCase().includes(kw) || 
-          p.location?.city?.toLowerCase().includes(kw)
+          p.location?.city?.toLowerCase().includes(kw) ||
+          p.location?.address?.toLowerCase().includes(kw) ||
+          (p.propertyType && p.propertyType.toLowerCase().includes(kw))
         );
       }
 
@@ -210,13 +325,16 @@ export async function getProperties(
     }
 
     const filter: Record<string, unknown> = {};
+    const conditions: Record<string, unknown>[] = [];
 
     if (req.user?.role !== 'admin') {
       if (req.user?.role === 'owner') {
-        filter.$or = [
-          { owner: req.user.userId },
-          { status: 'published' },
-        ];
+        conditions.push({
+          $or: [
+            { owner: req.user.userId },
+            { status: 'published' },
+          ],
+        });
       } else {
         filter.status = 'published';
       }
@@ -226,14 +344,33 @@ export async function getProperties(
       filter.status = query.status.includes(',') ? { $in: query.status.split(',') } : query.status;
     }
     if (query.owner) filter.owner = query.owner;
-    if (query.propertyType) filter.propertyType = query.propertyType;
 
-    if (query.keyword) {
-      filter.$text = { $search: query.keyword };
+    if (query.propertyType) {
+      const expandedTypes = expandPropertyTypes(query.propertyType);
+      filter.propertyType = { $in: expandedTypes };
     }
 
-    if (query.location) {
-      filter['location.city'] = { $regex: query.location, $options: 'i' };
+    if (query.keyword) {
+      const kwRegex = { $regex: query.keyword, $options: 'i' };
+      conditions.push({
+        $or: [
+          { title: kwRegex },
+          { description: kwRegex },
+          { 'location.city': kwRegex },
+          { 'location.address': kwRegex },
+          { 'location.state': kwRegex },
+          { propertyType: kwRegex },
+        ],
+      });
+    }
+
+    if (conditions.length > 0) {
+      filter.$and = conditions;
+    }
+
+    if (query.city || query.location) {
+      const loc = (query.city || query.location) as string;
+      filter['location.city'] = { $regex: loc, $options: 'i' };
     }
 
     if (query.minPrice || query.maxPrice) {
@@ -281,7 +418,8 @@ export async function getProperties(
     ]);
 
     sendPaginated(res, properties, total, page, limit);
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Error in getProperties:', error);
     sendError(res, 'Failed to fetch properties', 500);
   }
 }
@@ -291,9 +429,10 @@ export async function getPropertyById(
   res: Response
 ): Promise<void> {
   try {
-    if (!isDatabaseConnected) {
+    const id = req.params.id as string;
+    if (!isDatabaseConnected || !mongoose.Types.ObjectId.isValid(id)) {
       initInMemoryStore();
-      const property = inMemoryProperties.find(p => p._id === req.params.id);
+      const property = inMemoryProperties.find(p => p._id === id);
       if (!property) {
         sendError(res, 'Property not found', 404);
         return;
@@ -302,7 +441,7 @@ export async function getPropertyById(
       return;
     }
 
-    const property = await Property.findById(req.params.id)
+    const property = await Property.findById(id)
       .populate('owner', 'name email mobile avatar')
       .populate('reviewedBy', 'name');
 
@@ -321,8 +460,9 @@ export async function getPropertyById(
     }
 
     sendSuccess(res, { property });
-  } catch (error) {
-    sendError(res, 'Failed to fetch property', 500);
+  } catch (error: any) {
+    console.error('Error fetching property by id:', error);
+    sendError(res, error?.message || 'Failed to fetch property', 500);
   }
 }
 
@@ -332,11 +472,6 @@ export async function updateProperty(
 ): Promise<void> {
   try {
     let { title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea, amenities, videoUrl, location, images } = req.body;
-    
-    // Auto-configure photos if empty
-    if (images && images.length === 0) {
-      images = getFallbackImagesForPropertyType(propertyType);
-    }
 
     if (!isDatabaseConnected) {
       initInMemoryStore();
@@ -502,7 +637,7 @@ export async function resubmitProperty(
       return;
     }
 
-    const { title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea, amenities, videoUrl, location } = req.body;
+    const { title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea, amenities, videoUrl, location, images } = req.body;
 
     if (title) property.title = title;
     if (description) property.description = description;
@@ -516,6 +651,7 @@ export async function resubmitProperty(
     if (amenities) property.amenities = amenities;
     if (videoUrl !== undefined) property.videoUrl = videoUrl;
     if (location) property.location = location;
+    if (images !== undefined) property.images = images;
 
     property.status = 'pending_review';
     property.feedback = '';
@@ -610,5 +746,67 @@ export async function getOwnerProperties(
     sendPaginated(res, properties, total, page, limit);
   } catch (error) {
     sendError(res, 'Failed to fetch owner properties', 500);
+  }
+}
+
+export async function contactPropertyOwner(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { name, email, phone, message } = req.body;
+
+    if (!name || !email || !message) {
+      sendError(res, 'Name, email, and message are required fields', 400);
+      return;
+    }
+
+    let property: any = null;
+    const propertyIdStr = String(id);
+    if (mongoose.Types.ObjectId.isValid(propertyIdStr)) {
+      property = await Property.findById(propertyIdStr).populate('owner');
+    }
+    if (!property) {
+      property = inMemoryProperties.find((p) => p._id === propertyIdStr);
+    }
+
+    if (!property) {
+      sendError(res, 'Property not found', 404);
+      return;
+    }
+
+    const ownerObj = property.owner;
+    const ownerId = ownerObj?._id ?? ownerObj;
+    const recipientIdStr = ownerId ? String(ownerId) : null;
+
+    if (recipientIdStr && mongoose.Types.ObjectId.isValid(recipientIdStr)) {
+      await Notification.create({
+        recipient: new mongoose.Types.ObjectId(recipientIdStr),
+        type: 'inquiry',
+        title: `New Inquiry for ${property.title}`,
+        message: `${name} (${email}${phone ? `, Ph: ${phone}` : ''}) sent an inquiry: "${message}"`,
+        metadata: {
+          propertyId: property._id,
+          propertyTitle: property.title,
+          senderName: name,
+          senderEmail: email,
+          senderPhone: phone || '',
+          senderMessage: message,
+        },
+      });
+    }
+
+    console.log(`[Inquiry Sent] Property "${property.title}" - From: ${name} (${email}) - Message: ${message}`);
+
+    sendSuccess(
+      res,
+      {
+        inquirySent: true,
+        propertyTitle: property.title,
+        ownerEmail: ownerObj?.email || undefined,
+      },
+      'Inquiry sent successfully to the property owner!'
+    );
+  } catch (error) {
+    console.error('Error in contactPropertyOwner:', error);
+    sendError(res, 'Failed to send inquiry to property owner', 500);
   }
 }

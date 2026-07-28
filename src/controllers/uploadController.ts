@@ -46,56 +46,64 @@ export async function uploadImages(
     }
 
     const files = req.files as Express.Multer.File[];
-    const uploadPromises = files.map((file) => {
-      return new Promise<{ url: string; publicId: string }>(
-        (resolve, reject) => {
-          const uploadStream = cloudinary.uploader.upload_stream(
-            {
-              folder: 'rentalisting',
-              resource_type: 'image',
-              transformation: [
-                { quality: 'auto', fetch_format: 'webp' },
-                { width: 1200, height: 800, crop: 'limit' },
-              ],
-            },
-            (error, result) => {
-              if (error) reject(error);
-              else
-                resolve({
-                  url: result!.secure_url,
-                  publicId: result!.public_id,
-                });
+    const isCloudinaryConfigured = Boolean(
+      env.cloudinary.cloudName &&
+      env.cloudinary.cloudName !== 'mock_cloud' &&
+      env.cloudinary.apiKey &&
+      env.cloudinary.apiSecret
+    );
+
+    if (isCloudinaryConfigured) {
+      try {
+        const uploadPromises = files.map((file) => {
+          return new Promise<{ url: string; publicId: string }>(
+            (resolve, reject) => {
+              const uploadStream = cloudinary.uploader.upload_stream(
+                {
+                  folder: 'rentalisting',
+                  resource_type: 'image',
+                  transformation: [
+                    { quality: 'auto', fetch_format: 'webp' },
+                    { width: 1200, height: 800, crop: 'limit' },
+                  ],
+                },
+                (error, result) => {
+                  if (error) reject(error);
+                  else
+                    resolve({
+                      url: result!.secure_url,
+                      publicId: result!.public_id,
+                    });
+                }
+              );
+              uploadStream.end(file.buffer);
             }
           );
-          uploadStream.end(file.buffer);
-        }
-      );
-    });
+        });
 
-    const results = await Promise.all(uploadPromises);
-    sendSuccess(res, { images: results }, 'Images uploaded', 201);
-  } catch (error) {
-    // FALLBACK: If Cloudinary fails (e.g. invalid keys / connection issues),
-    // return high-quality mock real-estate images so the owner listings continue to work.
-    const mockImages = [
-      'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&h=800&q=80',
-      'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1200&h=800&q=80',
-      'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1200&h=800&q=80',
-      'https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?auto=format&fit=crop&w=1200&h=800&q=80',
-      'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1200&h=800&q=80',
-      'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1200&h=800&q=80'
-    ];
-    
-    const files = req.files as Express.Multer.File[];
-    const results = files.map((_file, index) => {
-      const mockUrl = mockImages[index % mockImages.length];
+        const results = await Promise.all(uploadPromises);
+        sendSuccess(res, { images: results }, 'Images uploaded to Cloudinary', 201);
+        return;
+      } catch (cloudError) {
+        console.warn('[Upload] Cloudinary upload error, using direct image buffer encoding fallback:', cloudError);
+      }
+    }
+
+    // Convert exact uploaded file buffers into Base64 Data URIs so the user's actual submitted images are saved & displayed
+    const results = files.map((file, index) => {
+      const mime = file.mimetype || 'image/jpeg';
+      const base64 = file.buffer.toString('base64');
+      const dataUrl = `data:${mime};base64,${base64}`;
       return {
-        url: mockUrl,
-        publicId: `mock_${Math.random().toString(36).substring(2, 9)}`
+        url: dataUrl,
+        publicId: `local_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 7)}`,
       };
     });
-    
-    sendSuccess(res, { images: results }, 'Images uploaded (fallback mode)', 201);
+
+    sendSuccess(res, { images: results }, 'Images uploaded successfully', 201);
+  } catch (error) {
+    console.error('Error in uploadImages:', error);
+    sendError(res, 'Failed to upload images', 500);
   }
 }
 

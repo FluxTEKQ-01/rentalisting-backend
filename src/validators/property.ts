@@ -25,6 +25,7 @@ export const createPropertySchema = z.object({
       'shop_retail',
       'warehouse',
       'house_apartment',
+      'apartment',
       'villa',
       'open_plot_land',
       'event_venue',
@@ -58,7 +59,7 @@ export const updatePropertySchema = z.object({
       .optional(),
     description: z.string().min(20).optional(),
     propertyType: z
-      .enum(['office', 'shop_retail', 'warehouse', 'house_apartment', 'villa', 'open_plot_land', 'event_venue', 'coworking', 'commercial_building', 'parking', 'showroom', 'industrial', 'hotel_banquet', 'shooting_location', 'storage'])
+      .enum(['office', 'shop_retail', 'warehouse', 'house_apartment', 'apartment', 'villa', 'open_plot_land', 'event_venue', 'coworking', 'commercial_building', 'parking', 'showroom', 'industrial', 'hotel_banquet', 'shooting_location', 'storage'])
       .optional(),
     price: z.number().min(0).optional(),
     maxPrice: z.number().min(0).optional(),
@@ -84,9 +85,7 @@ export const propertyQuerySchema = z.object({
   query: z.object({
     keyword: z.string().optional(),
     location: z.string().optional(),
-    propertyType: z
-      .enum(['office', 'shop_retail', 'warehouse', 'house_apartment', 'villa', 'open_plot_land', 'event_venue', 'coworking', 'commercial_building', 'parking', 'showroom', 'industrial', 'hotel_banquet', 'shooting_location', 'storage'])
-      .optional(),
+    propertyType: z.string().optional(),
     minPrice: z.string().optional(),
     maxPrice: z.string().optional(),
     bedrooms: z.string().optional(),

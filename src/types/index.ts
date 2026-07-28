@@ -16,6 +16,7 @@ export type PropertyCategory =
   | 'shop_retail'
   | 'warehouse'
   | 'house_apartment'
+  | 'apartment'
   | 'villa'
   | 'open_plot_land'
   | 'event_venue'
@@ -46,6 +47,7 @@ export interface PaginationQuery {
 export interface PropertyQuery extends PaginationQuery {
   keyword?: string;
   location?: string;
+  city?: string;
   propertyType?: PropertyCategory;
   minPrice?: string;
   maxPrice?: string;

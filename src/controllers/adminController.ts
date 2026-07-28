@@ -14,8 +14,9 @@ export async function approveProperty(
   res: Response
 ): Promise<void> {
   try {
-    if (!isDatabaseConnected) {
-      const property = inMemoryProperties.find(p => p._id === req.params.id);
+    const id = req.params.id as string;
+    if (!isDatabaseConnected || !mongoose.Types.ObjectId.isValid(id)) {
+      const property = inMemoryProperties.find(p => p._id === id);
       if (!property) {
         sendError(res, 'Property not found', 404);
         return;
@@ -25,7 +26,7 @@ export async function approveProperty(
       return;
     }
 
-    const property = await Property.findById(req.params.id).populate('owner');
+    const property = await Property.findById(id).populate('owner');
 
     if (!property) {
       sendError(res, 'Property not found', 404);
@@ -38,21 +39,27 @@ export async function approveProperty(
     }
 
     property.status = 'published';
-    property.reviewedBy = new mongoose.Types.ObjectId(req.user!.userId);
+    if (req.user?.userId && mongoose.Types.ObjectId.isValid(req.user.userId)) {
+      property.reviewedBy = new mongoose.Types.ObjectId(req.user.userId);
+    }
     property.reviewedAt = new Date();
     await property.save();
 
-    await Notification.create({
-      recipient: property.owner._id,
-      type: 'listing_approved',
-      title: 'Listing Approved',
-      message: `Your property "${property.title}" has been approved and is now published.`,
-      metadata: { propertyId: property._id },
-    });
+    const recipientId = (property.owner as any)?._id ?? property.owner;
+    if (recipientId) {
+      await Notification.create({
+        recipient: recipientId,
+        type: 'listing_approved',
+        title: 'Listing Approved',
+        message: `Your property "${property.title}" has been approved and is now published.`,
+        metadata: { propertyId: property._id },
+      });
+    }
 
     sendSuccess(res, { property }, 'Property approved and published');
-  } catch (error) {
-    sendError(res, 'Failed to approve property', 500);
+  } catch (error: any) {
+    console.error('Error approving property:', error);
+    sendError(res, error?.message || 'Failed to approve property', 500);
   }
 }
 
@@ -61,6 +68,7 @@ export async function rejectProperty(
   res: Response
 ): Promise<void> {
   try {
+    const id = req.params.id as string;
     const { feedback } = req.body;
 
     if (!feedback || feedback.trim().length < 10) {
@@ -72,8 +80,8 @@ export async function rejectProperty(
       return;
     }
 
-    if (!isDatabaseConnected) {
-      const property = inMemoryProperties.find(p => p._id === req.params.id);
+    if (!isDatabaseConnected || !mongoose.Types.ObjectId.isValid(id)) {
+      const property = inMemoryProperties.find(p => p._id === id);
       if (!property) {
         sendError(res, 'Property not found', 404);
         return;
@@ -84,7 +92,7 @@ export async function rejectProperty(
       return;
     }
 
-    const property = await Property.findById(req.params.id).populate('owner');
+    const property = await Property.findById(id).populate('owner');
 
     if (!property) {
       sendError(res, 'Property not found', 404);
@@ -99,24 +107,30 @@ export async function rejectProperty(
     property.status = 'rejected';
     property.feedback = feedback.trim();
     property.feedbackProvidedAt = new Date();
-    property.reviewedBy = new mongoose.Types.ObjectId(req.user!.userId);
+    if (req.user?.userId && mongoose.Types.ObjectId.isValid(req.user.userId)) {
+      property.reviewedBy = new mongoose.Types.ObjectId(req.user.userId);
+    }
     property.reviewedAt = new Date();
     await property.save();
 
-    await Notification.create({
-      recipient: property.owner._id ?? property.owner,
-      type: 'listing_rejected',
-      title: 'Listing Rejected',
-      message: `Your property "${property.title}" has been rejected. Please check the feedback and resubmit.`,
-      metadata: {
-        propertyId: property._id,
-        feedback: feedback.trim(),
-      },
-    });
+    const recipientId = (property.owner as any)?._id ?? property.owner;
+    if (recipientId) {
+      await Notification.create({
+        recipient: recipientId,
+        type: 'listing_rejected',
+        title: 'Listing Rejected',
+        message: `Your property "${property.title}" has been rejected. Please check the feedback and resubmit.`,
+        metadata: {
+          propertyId: property._id,
+          feedback: feedback.trim(),
+        },
+      });
+    }
 
     sendSuccess(res, { property }, 'Property rejected with feedback');
-  } catch (error) {
-    sendError(res, 'Failed to reject property', 500);
+  } catch (error: any) {
+    console.error('Error rejecting property:', error);
+    sendError(res, error?.message || 'Failed to reject property', 500);
   }
 }
 
@@ -125,8 +139,9 @@ export async function archiveProperty(
   res: Response
 ): Promise<void> {
   try {
-    if (!isDatabaseConnected) {
-      const property = inMemoryProperties.find(p => p._id === req.params.id);
+    const id = req.params.id as string;
+    if (!isDatabaseConnected || !mongoose.Types.ObjectId.isValid(id)) {
+      const property = inMemoryProperties.find(p => p._id === id);
       if (!property) {
         sendError(res, 'Property not found', 404);
         return;
@@ -137,7 +152,7 @@ export async function archiveProperty(
     }
 
     const property = await Property.findByIdAndUpdate(
-      req.params.id,
+      id,
       { status: 'archived' },
       { new: true }
     );
@@ -148,8 +163,9 @@ export async function archiveProperty(
     }
 
     sendSuccess(res, { property }, 'Property archived');
-  } catch (error) {
-    sendError(res, 'Failed to archive property', 500);
+  } catch (error: any) {
+    console.error('Error archiving property:', error);
+    sendError(res, error?.message || 'Failed to archive property', 500);
   }
 }
 
@@ -283,3 +299,38 @@ export async function toggleUserStatus(
     sendError(res, 'Failed to toggle user status', 500);
   }
 }
+
+export async function deleteUser(
+  req: AuthRequest,
+  res: Response
+): Promise<void> {
+  try {
+    const userId = req.params.id;
+
+    if (userId === req.user?.userId) {
+      sendError(res, 'You cannot delete your own admin account', 400);
+      return;
+    }
+
+    if (!isDatabaseConnected) {
+      sendSuccess(res, null, 'User deleted successfully');
+      return;
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      sendError(res, 'User not found', 404);
+      return;
+    }
+
+    await Property.deleteMany({ owner: userId });
+    await Review.deleteMany({ author: userId });
+    await User.findByIdAndDelete(userId);
+
+    sendSuccess(res, null, 'User deleted successfully');
+  } catch (error) {
+    sendError(res, 'Failed to delete user', 500);
+  }
+}
+

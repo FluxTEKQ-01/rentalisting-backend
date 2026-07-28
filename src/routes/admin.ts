@@ -6,6 +6,7 @@ import {
   getAdminDashboard,
   getUsers,
   toggleUserStatus,
+  deleteUser,
 } from '../controllers/adminController.js';
 import { getAllReviews } from '../controllers/reviewController.js';
 import { authenticate } from '../middleware/auth.js';
@@ -23,6 +24,7 @@ router.put('/properties/:id/reject', validate(rejectPropertySchema), rejectPrope
 router.put('/properties/:id/archive', archiveProperty);
 router.get('/users', getUsers);
 router.put('/users/:id/toggle-status', toggleUserStatus);
+router.delete('/users/:id', deleteUser);
 router.get('/reviews', getAllReviews);
 
 export default router;
