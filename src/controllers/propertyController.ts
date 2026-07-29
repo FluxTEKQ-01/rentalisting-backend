@@ -535,7 +535,10 @@ export async function updateProperty(
     if (maxArea !== undefined) updateData.maxArea = maxArea;
     if (amenities !== undefined) updateData.amenities = amenities;
     if (videoUrl !== undefined) updateData.videoUrl = videoUrl;
-    if (location !== undefined) updateData.location = location;
+    if (location !== undefined) {
+      location.coordinates = resolvePropertyCoordinates(location);
+      updateData.location = location;
+    }
     if (images !== undefined) updateData.images = images;
 
     const updatedProperty = await Property.findByIdAndUpdate(
@@ -650,7 +653,10 @@ export async function resubmitProperty(
     if (maxArea !== undefined) property.maxArea = maxArea;
     if (amenities) property.amenities = amenities;
     if (videoUrl !== undefined) property.videoUrl = videoUrl;
-    if (location) property.location = location;
+    if (location) {
+      location.coordinates = resolvePropertyCoordinates(location);
+      property.location = location;
+    }
     if (images !== undefined) property.images = images;
 
     property.status = 'pending_review';

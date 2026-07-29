@@ -13,6 +13,7 @@
   import notificationRoutes from './routes/notifications.js';
   import uploadRoutes from './routes/uploads.js';
   import analyticsRoutes from './routes/analytics.js';
+  import commentRoutes from './routes/commentRoutes.js';
 
   const app = express();
 
@@ -44,6 +45,7 @@
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/uploads', uploadRoutes);
   app.use('/api/analytics', analyticsRoutes);
+  app.use('/api/comments', commentRoutes);
 
   app.use(notFound);
   app.use(errorHandler);
