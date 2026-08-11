@@ -325,75 +325,59 @@ export async function getProperties(
       return;
     }
 
-    const filter: Record<string, unknown> = {};
-    const conditions: Record<string, unknown>[] = [];
+    // Build Supabase-compatible filters
+    const filters: any = {};
 
-    if (req.user?.role !== 'admin') {
-      if (req.user?.role === 'owner') {
-        conditions.push({
-          $or: [
-            { owner: req.user.userId },
-            { status: 'published' },
-          ],
-        });
-      } else {
-        filter.status = 'published';
+    // Handle status filter
+    if (!req.user?.role || req.user.role === 'admin') {
+      if (query.status) {
+        filters.status = query.status.includes(',') ? query.status.split(',') : query.status;
       }
+    } else if (req.user.role === 'owner') {
+      filters.status = query.status ? query.status.split(',').concat(['published']) : ['published'];
+    } else {
+      filters.status = 'published';
     }
 
-    if (query.status) {
-      filter.status = query.status.includes(',') ? { $in: query.status.split(',') } : query.status;
-    }
-    if (query.owner) filter.owner = query.owner;
+    if (query.owner) filters.owner_id = query.owner;
 
     if (query.propertyType) {
       const expandedTypes = expandPropertyTypes(query.propertyType);
-      filter.propertyType = { $in: expandedTypes };
+      filters.propertyType = expandedTypes;
     }
 
     if (query.keyword) {
-      const kwRegex = { $regex: query.keyword, $options: 'i' };
-      conditions.push({
-        $or: [
-          { title: kwRegex },
-          { description: kwRegex },
-          { 'location.city': kwRegex },
-          { 'location.address': kwRegex },
-          { 'location.state': kwRegex },
-          { propertyType: kwRegex },
-        ],
-      });
+      filters.keyword = query.keyword;
     }
 
-    if (conditions.length > 0) {
-      filter.$and = conditions;
+    const city = query.city || query.location;
+    if (city) {
+      filters.city = city as string;
     }
 
-    if (query.city || query.location) {
-      const loc = (query.city || query.location) as string;
-      filter['location.city'] = { $regex: loc, $options: 'i' };
+    if (query.minPrice) {
+      filters.priceMin = parseInt(query.minPrice, 10);
+    }
+    if (query.maxPrice) {
+      filters.priceMax = parseInt(query.maxPrice, 10);
     }
 
-    if (query.minPrice || query.maxPrice) {
-      const priceFilter: Record<string, number> = {};
-      if (query.minPrice) priceFilter.$gte = parseInt(query.minPrice, 10);
-      if (query.maxPrice) priceFilter.$lte = parseInt(query.maxPrice, 10);
-      filter.price = priceFilter;
+    if (query.bedrooms) {
+      filters.bedrooms = parseInt(query.bedrooms, 10);
+    }
+    if (query.bathrooms) {
+      filters.bathrooms = parseInt(query.bathrooms, 10);
     }
 
-    if (query.bedrooms) filter.bedrooms = { $gte: parseInt(query.bedrooms, 10) };
-    if (query.bathrooms) filter.bathrooms = { $gte: parseInt(query.bathrooms, 10) };
-
-    if (query.minArea || query.maxArea) {
-      const areaFilter: Record<string, number> = {};
-      if (query.minArea) areaFilter.$gte = parseFloat(query.minArea);
-      if (query.maxArea) areaFilter.$lte = parseFloat(query.maxArea);
-      filter.area = areaFilter;
+    if (query.minArea) {
+      filters.areaMin = parseFloat(query.minArea);
+    }
+    if (query.maxArea) {
+      filters.areaMax = parseFloat(query.maxArea);
     }
 
     if (query.amenities) {
-      const amenities = query.amenities.split(',');
-      filter.amenities = { $all: amenities };
+      filters.amenities = query.amenities.split(',');
     }
 
     let sortBy = 'created_at';
@@ -413,8 +397,8 @@ export async function getProperties(
     }
 
     const [properties, total] = await Promise.all([
-      propertyRepository.find({ ...filter, skip, limit, sort: sortBy, order }),
-      propertyRepository.countDocuments(filter),
+      propertyRepository.find({ ...filters, skip, limit, sort: sortBy, order }),
+      propertyRepository.countDocuments(filters),
     ]);
 
     sendPaginated(res, properties, total, page, limit);

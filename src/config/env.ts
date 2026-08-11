@@ -20,8 +20,8 @@ export const env = {
     apiKey: process.env.CLOUDINARY_API_KEY || '',
     apiSecret: process.env.CLOUDINARY_API_SECRET || '',
   },
-  // CORS origins must not include a trailing slash.
-  corsOrigin: process.env.CORS_ORIGIN || 'https://rentalisting.vercel.app',
+  // CORS origins can be comma-separated and must not include trailing slashes
+  corsOrigin: (process.env.CORS_ORIGIN || 'https://rentalisting.vercel.app').split(',').map(s => s.trim()),
   // Supabase PostgreSQL (Phase 2+ migration target)
   supabaseUrl: requireEnv('SUPABASE_URL'),
   supabaseServiceRoleKey: requireEnv('SUPABASE_SERVICE_ROLE_KEY'),

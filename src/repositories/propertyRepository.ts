@@ -100,12 +100,18 @@ export interface UpdatePropertyInput {
 export const propertyRepository = {
   // Find properties with filters, pagination, and sorting
   async find(options?: {
-    status?: string;
+    status?: string | string[];
     city?: string;
-    propertyType?: string;
+    propertyType?: string | string[];
     priceMin?: number;
     priceMax?: number;
     owner_id?: string;
+    bedrooms?: number;
+    bathrooms?: number;
+    areaMin?: number;
+    areaMax?: number;
+    keyword?: string;
+    amenities?: string[];
     skip?: number;
     limit?: number;
     sort?: string;
@@ -114,13 +120,21 @@ export const propertyRepository = {
     let query = supabaseClient.from('properties').select('*');
 
     if (options?.status) {
-      query = query.eq('status', options.status);
+      if (Array.isArray(options.status)) {
+        query = query.in('status', options.status);
+      } else {
+        query = query.eq('status', options.status);
+      }
     }
     if (options?.city) {
-      query = query.eq('city', options.city);
+      query = query.ilike('city', `%${options.city}%`);
     }
     if (options?.propertyType) {
-      query = query.eq('property_type', options.propertyType);
+      if (Array.isArray(options.propertyType)) {
+        query = query.in('property_type', options.propertyType);
+      } else {
+        query = query.eq('property_type', options.propertyType);
+      }
     }
     if (options?.priceMin !== undefined) {
       query = query.gte('price', options.priceMin);
@@ -131,9 +145,32 @@ export const propertyRepository = {
     if (options?.owner_id) {
       query = query.eq('owner_id', options.owner_id);
     }
+    if (options?.bedrooms !== undefined) {
+      query = query.gte('bedrooms', options.bedrooms);
+    }
+    if (options?.bathrooms !== undefined) {
+      query = query.gte('bathrooms', options.bathrooms);
+    }
+    if (options?.areaMin !== undefined) {
+      query = query.gte('area', options.areaMin);
+    }
+    if (options?.areaMax !== undefined) {
+      query = query.lte('area', options.areaMax);
+    }
+    if (options?.keyword) {
+      const kw = options.keyword;
+      const filters = [
+        `title.ilike.%${kw}%`,
+        `description.ilike.%${kw}%`,
+        `city.ilike.%${kw}%`,
+        `address.ilike.%${kw}%`
+      ];
+      query = query.or(filters.join(','));
+    }
 
-    // Sorting
-    const sortBy = options?.sort || 'created_at';
+    // Sorting - map to correct column names
+    let sortBy = options?.sort || 'created_at';
+    if (sortBy === 'propertyType') sortBy = 'property_type';
     const sortOrder = options?.order || 'desc';
     query = query.order(sortBy, { ascending: sortOrder === 'asc' });
 
@@ -316,17 +353,61 @@ export const propertyRepository = {
     return data as PropertyDoc;
   },
 
-  // Count properties
-  async countDocuments(filters?: { status?: string; owner_id?: string }): Promise<number> {
+  // Count properties with support for complex filters
+  async countDocuments(filters?: {
+    status?: string | string[];
+    city?: string;
+    propertyType?: string | string[];
+    priceMin?: number;
+    priceMax?: number;
+    owner_id?: string;
+    bedrooms?: number;
+    bathrooms?: number;
+    areaMin?: number;
+    areaMax?: number;
+    keyword?: string;
+  }): Promise<number> {
     let query = supabaseClient
       .from('properties')
       .select('*', { count: 'exact', head: true });
 
     if (filters?.status) {
-      query = query.eq('status', filters.status);
+      if (Array.isArray(filters.status)) {
+        query = query.in('status', filters.status);
+      } else {
+        query = query.eq('status', filters.status);
+      }
+    }
+    if (filters?.city) {
+      query = query.ilike('city', `%${filters.city}%`);
+    }
+    if (filters?.propertyType) {
+      if (Array.isArray(filters.propertyType)) {
+        query = query.in('property_type', filters.propertyType);
+      } else {
+        query = query.eq('property_type', filters.propertyType);
+      }
+    }
+    if (filters?.priceMin !== undefined) {
+      query = query.gte('price', filters.priceMin);
+    }
+    if (filters?.priceMax !== undefined) {
+      query = query.lte('price', filters.priceMax);
     }
     if (filters?.owner_id) {
       query = query.eq('owner_id', filters.owner_id);
+    }
+    if (filters?.bedrooms !== undefined) {
+      query = query.gte('bedrooms', filters.bedrooms);
+    }
+    if (filters?.bathrooms !== undefined) {
+      query = query.gte('bathrooms', filters.bathrooms);
+    }
+    if (filters?.areaMin !== undefined) {
+      query = query.gte('area', filters.areaMin);
+    }
+    if (filters?.areaMax !== undefined) {
+      query = query.lte('area', filters.areaMax);
     }
 
     const { count, error } = await query;
