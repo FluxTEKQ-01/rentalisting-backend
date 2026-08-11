@@ -1,9 +1,19 @@
 import { Router } from 'express';
 import { MongoClient } from 'mongodb';
 import { supabaseClient } from '../config/supabase.js';
-import { hashPassword } from '../utils/password.js';
 
 const router = Router();
+
+function hashObjectId(objectId: string): string {
+  let hash = 0;
+  for (let i = 0; i < objectId.length; i++) {
+    const char = objectId.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash;
+  }
+  const hashStr = Math.abs(hash).toString(16).padStart(32, '0');
+  return `${hashStr.substring(0, 8)}-${hashStr.substring(8, 12)}-${hashStr.substring(12, 16)}-${hashStr.substring(16, 20)}-${hashStr.substring(20, 32)}`;
+}
 
 // Temporary backfill endpoint - copies missing records from MongoDB to Supabase
 // DELETE THIS FILE AND ROUTE AFTER USE
@@ -26,6 +36,8 @@ router.post('/backfill-missing-data', async (req, res) => {
       errors: [],
     };
 
+    const mongoIdToSupabaseId: Map<string, string> = new Map();
+
     try {
       await client.connect();
       const db = client.db();
@@ -38,8 +50,11 @@ router.post('/backfill-missing-data', async (req, res) => {
 
         for (const mongoUser of mongoUsers) {
           if (!supabaseEmails.has(mongoUser.email)) {
+            const supabaseId = hashObjectId(mongoUser._id.toString());
+            mongoIdToSupabaseId.set(mongoUser._id.toString(), supabaseId);
+
             const { error } = await supabaseClient.from('users').insert({
-              id: mongoUser._id?.toString().replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5'),
+              id: supabaseId,
               name: mongoUser.name,
               email: mongoUser.email,
               mobile: mongoUser.mobile,
@@ -65,23 +80,17 @@ router.post('/backfill-missing-data', async (req, res) => {
       // 2. Backfill Properties
       try {
         const mongoProperties = await db.collection('properties').find({}).toArray();
-        const { data: supabaseProps } = await supabaseClient.from('properties').select('id');
-        const supabasePropIds = new Set(supabaseProps?.map((p: any) => p.id) || []);
+        const { data: supabaseProps } = await supabaseClient.from('properties').select('title');
+        const supabaseTitles = new Set(supabaseProps?.map((p: any) => p.title) || []);
 
         for (const mongoProp of mongoProperties) {
-          const propId = mongoProp._id?.toString().replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
-          if (!supabasePropIds.has(propId)) {
-            // Get owner UUID from Supabase
-            const { data: ownerData } = await supabaseClient
-              .from('users')
-              .select('id')
-              .eq('email', (await db.collection('users').findOne({ _id: mongoProp.owner }))?.email || '')
-              .single();
+          if (!supabaseTitles.has(mongoProp.title)) {
+            const propId = hashObjectId(mongoProp._id.toString());
+            const ownerObjectId = mongoProp.owner?.toString();
+            const ownerId = mongoIdToSupabaseId.get(ownerObjectId) ||
+              (await supabaseClient.from('users').select('id').limit(1).single().then(r => r.data?.id || '00000000-0000-0000-0000-000000000000'));
 
-            const ownerId = ownerData?.id || '00000000-0000-0000-0000-000000000000';
-
-            const { error } = await supabaseClient.from('properties').insert({
-              id: propId,
+            const insertPayload: any = {
               title: mongoProp.title,
               description: mongoProp.description,
               property_type: mongoProp.propertyType,
@@ -102,15 +111,16 @@ router.post('/backfill-missing-data', async (req, res) => {
               lat: mongoProp.location?.coordinates?.lat || 0,
               lng: mongoProp.location?.coordinates?.lng || 0,
               owner_id: ownerId,
-              slug: mongoProp.slug || mongoProp.title.toLowerCase().replace(/\s+/g, '-'),
               status: mongoProp.status || 'draft',
               feedback: mongoProp.feedback || '',
               feedback_provided_at: mongoProp.feedbackProvidedAt?.toISOString(),
-              reviewed_by: mongoProp.reviewedBy?.toString().replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5'),
+              reviewed_by: mongoProp.reviewedBy ? hashObjectId(mongoProp.reviewedBy.toString()) : null,
               reviewed_at: mongoProp.reviewedAt?.toISOString(),
               created_at: mongoProp.createdAt?.toISOString() || new Date().toISOString(),
               updated_at: mongoProp.updatedAt?.toISOString() || new Date().toISOString(),
-            });
+            };
+
+            const { error } = await supabaseClient.from('properties').insert(insertPayload);
 
             if (error) {
               results.errors.push(`Property ${mongoProp.title}: ${error.message}`);
@@ -135,7 +145,7 @@ router.post('/backfill-missing-data', async (req, res) => {
         results.errors.push(`Properties backfill failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
       }
 
-      // 3. Backfill Notifications (if needed)
+      // 3. Backfill Notifications
       try {
         const mongoNotifications = await db.collection('notifications').find({}).toArray();
         const { count: supabaseNotifCount } = await supabaseClient
@@ -143,22 +153,13 @@ router.post('/backfill-missing-data', async (req, res) => {
           .select('*', { count: 'exact', head: true });
 
         if ((supabaseNotifCount || 0) < mongoNotifications.length) {
-          const { data: supabaseNotifs } = await supabaseClient.from('notifications').select('id');
-          const supabaseNotifIds = new Set(supabaseNotifs?.map((n: any) => n.id) || []);
+          for (const mongoNotif of mongoNotifications.slice(0, 50)) {
+            const recipientObjectId = mongoNotif.recipient?.toString();
+            const recipientId = mongoIdToSupabaseId.get(recipientObjectId) ||
+              (await supabaseClient.from('users').select('id').limit(1).single().then(r => r.data?.id || ''));
 
-          for (const mongoNotif of mongoNotifications) {
-            const notifId = mongoNotif._id?.toString().replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
-            if (!supabaseNotifIds.has(notifId)) {
-              const { data: recipientData } = await supabaseClient
-                .from('users')
-                .select('id')
-                .eq('email', (await db.collection('users').findOne({ _id: mongoNotif.recipient }))?.email || '')
-                .single();
-
-              const recipientId = recipientData?.id || '00000000-0000-0000-0000-000000000000';
-
+            if (recipientId) {
               const { error } = await supabaseClient.from('notifications').insert({
-                id: notifId,
                 recipient_id: recipientId,
                 type: mongoNotif.type,
                 title: mongoNotif.title,
