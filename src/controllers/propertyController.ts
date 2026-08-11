@@ -252,8 +252,10 @@ export async function createProperty(
       owner_id: req.user!.userId,
     });
     sendSuccess(res, { property }, 'Property created', 201);
-  } catch (error) {
-    sendError(res, 'Failed to create property', 500);
+  } catch (error: any) {
+    console.error('Property creation error:', error);
+    const message = error?.message || error?.details?.message || 'Failed to create property';
+    sendError(res, message, 500, { error: error?.code });
   }
 }
 
