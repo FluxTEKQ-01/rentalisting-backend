@@ -91,6 +91,18 @@ router.post('/backfill-missing-data', async (req, res) => {
             const ownerId = mongoIdToSupabaseId.get(ownerObjectId) ||
               (await supabaseClient.from('users').select('id').limit(1).single().then(r => r.data?.id || '00000000-0000-0000-0000-000000000000'));
 
+            // Check if reviewedBy user exists in Supabase (if referenced)
+            let reviewedById: string | null = null;
+            if (mongoProp.reviewedBy) {
+              const potentialReviewerId = hashObjectId(mongoProp.reviewedBy.toString());
+              const { data: reviewerExists } = await supabaseClient
+                .from('users')
+                .select('id')
+                .eq('id', potentialReviewerId)
+                .single();
+              reviewedById = reviewerExists?.id || null;
+            }
+
             const insertPayload: any = {
               title: mongoProp.title,
               description: mongoProp.description,
@@ -115,8 +127,8 @@ router.post('/backfill-missing-data', async (req, res) => {
               status: mongoProp.status || 'draft',
               feedback: mongoProp.feedback || '',
               feedback_provided_at: mongoProp.feedbackProvidedAt?.toISOString(),
-              reviewed_by: mongoProp.reviewedBy ? hashObjectId(mongoProp.reviewedBy.toString()) : null,
-              reviewed_at: mongoProp.reviewedAt?.toISOString(),
+              reviewed_by: reviewedById,
+              reviewed_at: reviewedById ? mongoProp.reviewedAt?.toISOString() : null,
               created_at: mongoProp.createdAt?.toISOString() || new Date().toISOString(),
               updated_at: mongoProp.updatedAt?.toISOString() || new Date().toISOString(),
             };
