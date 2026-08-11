@@ -14,6 +14,7 @@ import { authorize } from '../middleware/roles.js';
 import { validate } from '../middleware/validate.js';
 import { rejectPropertySchema } from '../validators/property.js';
 import verifyRoutes from './admin-verify.js';
+import backfillRoutes from './admin-backfill.js';
 
 const router = Router();
 
@@ -30,5 +31,8 @@ router.get('/reviews', getAllReviews);
 
 // Temporary verification endpoint (DELETE THIS AND admin-verify.ts after use)
 router.use('/verify', verifyRoutes);
+
+// Temporary backfill endpoint (DELETE THIS AND admin-backfill.ts after use)
+router.use('/backfill', backfillRoutes);
 
 export default router;
