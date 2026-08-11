@@ -79,8 +79,10 @@ export async function register(req: Request, res: Response): Promise<void> {
       'Registration successful',
       201
     );
-  } catch (error) {
-    sendError(res, 'Registration failed', 500);
+  } catch (error: any) {
+    console.error('Registration error:', error);
+    const message = error?.message || 'Registration failed';
+    sendError(res, message, 500);
   }
 }
 
