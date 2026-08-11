@@ -69,6 +69,22 @@ export const userRepository = {
     return data as UserDoc;
   },
 
+  // Both email and mobile are UNIQUE, so registration must check both up front.
+  // Two plain equality queries rather than a PostgREST `or` filter, because
+  // mobile numbers may contain characters ('+') that need escaping in that syntax.
+  async findConflict(
+    email: string,
+    mobile: string
+  ): Promise<{ user: UserDoc; field: 'email' | 'mobile' } | null> {
+    const byEmail = await this.findOne({ email });
+    if (byEmail) return { user: byEmail, field: 'email' };
+
+    const byMobile = await this.findOne({ mobile });
+    if (byMobile) return { user: byMobile, field: 'mobile' };
+
+    return null;
+  },
+
   // Create a new user
   async create(input: CreateUserInput): Promise<UserDoc> {
     const { data, error } = await supabaseClient

@@ -3,6 +3,7 @@ import { propertyRepository } from '../repositories/propertyRepository.js';
 import { userRepository } from '../repositories/userRepository.js';
 import { notificationRepository } from '../repositories/notificationRepository.js';
 import { sendSuccess, sendError, sendPaginated } from '../utils/apiResponse.js';
+import { serializeProperty, serializeProperties } from '../utils/serializers.js';
 import type { AuthRequest, PropertyQuery } from '../types/index.js';
 import { isDatabaseConnected } from '../config/db.js';
 
@@ -251,7 +252,7 @@ export async function createProperty(
       images,
       owner_id: req.user!.userId,
     });
-    sendSuccess(res, { property }, 'Property created', 201);
+    sendSuccess(res, { property: serializeProperty(property) }, 'Property created', 201);
   } catch (error: any) {
     console.error('Property creation error:', error);
     const message = error?.message || error?.details?.message || 'Failed to create property';
@@ -259,25 +260,34 @@ export async function createProperty(
   }
 }
 
+// Values accepted by the Postgres `property_type` enum. Anything outside this
+// list makes the query fail with 22P02 (invalid input value for enum), which
+// MongoDB tolerated silently but Postgres rejects with a 500.
+const PROPERTY_TYPE_ENUM = new Set([
+  'office', 'shop_retail', 'warehouse', 'house_apartment', 'apartment', 'villa',
+  'open_plot_land', 'event_venue', 'coworking', 'commercial_building', 'parking',
+  'showroom', 'industrial', 'hotel_banquet', 'shooting_location', 'storage',
+]);
+
+// Legacy/shorthand aliases accepted from URLs, mapped onto real enum values
+const PROPERTY_TYPE_ALIASES: Record<string, string[]> = {
+  house: ['house_apartment', 'apartment'],
+  apartments: ['house_apartment', 'apartment'],
+  house_apartment: ['house_apartment', 'apartment'],
+  apartment: ['house_apartment', 'apartment'],
+  shop: ['shop_retail'],
+  retail: ['shop_retail'],
+  plot: ['open_plot_land'],
+  land: ['open_plot_land'],
+};
+
 export function expandPropertyTypes(typeQuery: string): string[] {
   const rawTypes = typeQuery.split(',').map(t => t.trim()).filter(Boolean);
   const typesSet = new Set<string>();
 
   for (const t of rawTypes) {
-    typesSet.add(t);
-    if (t === 'house_apartment' || t === 'apartment' || t === 'house' || t === 'apartments') {
-      typesSet.add('house_apartment');
-      typesSet.add('apartment');
-    }
-    if (t === 'shop_retail' || t === 'shop' || t === 'retail') {
-      typesSet.add('shop_retail');
-      typesSet.add('shop');
-      typesSet.add('retail');
-    }
-    if (t === 'open_plot_land' || t === 'plot' || t === 'land') {
-      typesSet.add('open_plot_land');
-      typesSet.add('plot');
-      typesSet.add('land');
+    for (const mapped of PROPERTY_TYPE_ALIASES[t] || [t]) {
+      if (PROPERTY_TYPE_ENUM.has(mapped)) typesSet.add(mapped);
     }
   }
 
@@ -331,10 +341,13 @@ export async function getProperties(
     const filters: any = {};
 
     // Handle status filter
-    if (!req.user?.role || req.user.role === 'admin') {
+    if (req.user?.role === 'admin') {
       if (query.status) {
         filters.status = query.status.includes(',') ? query.status.split(',') : query.status;
       }
+    } else if (!req.user?.role) {
+      // Anonymous visitors must only ever see published listings
+      filters.status = 'published';
     } else if (req.user.role === 'owner') {
       filters.status = query.status ? query.status.split(',').concat(['published']) : ['published'];
     } else {
@@ -403,9 +416,16 @@ export async function getProperties(
       propertyRepository.countDocuments(filters),
     ]);
 
-    sendPaginated(res, properties, total, page, limit);
+    sendPaginated(res, serializeProperties(properties), total, page, limit);
   } catch (error: any) {
-    console.error('Error in getProperties:', error);
+    // Supabase errors carry code/details/hint rather than a useful `message`,
+    // so log the parts explicitly instead of an empty-looking object.
+    console.error('Error in getProperties:', {
+      message: error?.message,
+      code: error?.code,
+      details: error?.details,
+      hint: error?.hint,
+    });
     sendError(res, 'Failed to fetch properties', 500);
   }
 }
@@ -444,7 +464,7 @@ export async function getPropertyById(
       return;
     }
 
-    sendSuccess(res, { property });
+    sendSuccess(res, { property: serializeProperty(property) });
   } catch (error: any) {
     console.error('Error fetching property by id:', error);
     sendError(res, error?.message || 'Failed to fetch property', 500);
@@ -538,7 +558,14 @@ export async function updateProperty(
       return;
     }
 
-    sendSuccess(res, { property: updatedProperty }, 'Property updated');
+    // Images live in a child table, so they need their own write
+    if (Array.isArray(images)) {
+      updatedProperty.images = await propertyRepository.replaceImages(id, images);
+    } else {
+      updatedProperty.images = await propertyRepository.getImages(id);
+    }
+
+    sendSuccess(res, { property: serializeProperty(updatedProperty) }, 'Property updated');
   } catch (error) {
     sendError(res, 'Failed to update property', 500);
   }
@@ -591,7 +618,7 @@ export async function submitProperty(
     }));
     await notificationRepository.createBulk(notifications);
 
-    sendSuccess(res, { property }, 'Property submitted for review');
+    sendSuccess(res, { property: serializeProperty(property) }, 'Property submitted for review');
   } catch (error) {
     sendError(res, 'Failed to submit property', 500);
   }
@@ -665,6 +692,12 @@ export async function resubmitProperty(
       return;
     }
 
+    if (Array.isArray(images)) {
+      updated.images = await propertyRepository.replaceImages(id, images);
+    } else {
+      updated.images = await propertyRepository.getImages(id);
+    }
+
     const admins = await userRepository.findByRole('admin');
     const notifications = admins.map((admin) => ({
       recipient_id: admin.id,
@@ -675,7 +708,7 @@ export async function resubmitProperty(
     }));
     await notificationRepository.createBulk(notifications);
 
-    sendSuccess(res, { property: updated }, 'Property resubmitted for review');
+    sendSuccess(res, { property: serializeProperty(updated) }, 'Property resubmitted for review');
   } catch (error) {
     sendError(res, 'Failed to resubmit property', 500);
   }
@@ -750,7 +783,7 @@ export async function getOwnerProperties(
       propertyRepository.countByOwner(req.user!.userId, query.status),
     ]);
 
-    sendPaginated(res, properties, total, page, limit);
+    sendPaginated(res, serializeProperties(properties), total, page, limit);
   } catch (error) {
     sendError(res, 'Failed to fetch owner properties', 500);
   }

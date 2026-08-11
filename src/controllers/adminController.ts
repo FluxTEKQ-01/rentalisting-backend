@@ -1,9 +1,10 @@
-import { Response } from 'express';
+﻿import { Response } from 'express';
 import { propertyRepository } from '../repositories/propertyRepository.js';
 import { userRepository } from '../repositories/userRepository.js';
 import { reviewRepository } from '../repositories/reviewRepository.js';
 import { notificationRepository } from '../repositories/notificationRepository.js';
 import { sendSuccess, sendError } from '../utils/apiResponse.js';
+import { serializeProperty } from '../utils/serializers.js';
 import type { AuthRequest } from '../types/index.js';
 import { isDatabaseConnected } from '../config/db.js';
 import { inMemoryProperties } from './propertyController.js';
@@ -58,7 +59,7 @@ export async function approveProperty(
       });
     }
 
-    sendSuccess(res, { property: updated }, 'Property approved and published');
+    sendSuccess(res, { property: serializeProperty(updated) }, 'Property approved and published');
   } catch (error: any) {
     console.error('Error approving property:', error);
     sendError(res, error?.message || 'Failed to approve property', 500);
@@ -132,7 +133,7 @@ export async function rejectProperty(
       });
     }
 
-    sendSuccess(res, { property: updated }, 'Property rejected with feedback');
+    sendSuccess(res, { property: serializeProperty(updated) }, 'Property rejected with feedback');
   } catch (error: any) {
     console.error('Error rejecting property:', error);
     sendError(res, error?.message || 'Failed to reject property', 500);
@@ -163,7 +164,7 @@ export async function archiveProperty(
       return;
     }
 
-    sendSuccess(res, { property }, 'Property archived');
+    sendSuccess(res, { property: serializeProperty(property) }, 'Property archived');
   } catch (error: any) {
     console.error('Error archiving property:', error);
     sendError(res, error?.message || 'Failed to archive property', 500);

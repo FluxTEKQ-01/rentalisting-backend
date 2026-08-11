@@ -172,12 +172,15 @@ export async function getAllReviews(
   res: Response
 ): Promise<void> {
   try {
+    // Return the array directly, matching every other list endpoint. Wrapping it
+    // as { reviews: [...] } made the admin page crash on `reviews.map is not a
+    // function`, because the client reads response.data as the list itself.
     try {
       const reviews = await reviewRepository.find_all();
-      sendSuccess(res, { reviews }, 'All reviews retrieved');
+      sendSuccess(res, reviews, 'All reviews retrieved');
       return;
     } catch {
-      sendSuccess(res, { reviews: inMemoryReviews }, 'All reviews retrieved');
+      sendSuccess(res, inMemoryReviews, 'All reviews retrieved');
     }
   } catch (error) {
     sendError(res, 'Failed to fetch reviews', 500);

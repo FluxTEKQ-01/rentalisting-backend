@@ -1,6 +1,27 @@
 import { supabaseClient } from '../config/supabase.js';
 import { slugify, isUUID } from '../utils/slug.js';
 
+// Postgres error code for "undefined column". The `slug` column arrives via
+// docs/migration/06-add-property-slugs.sql; until that has been applied to a
+// given environment we fall back to UUID-only behaviour rather than 500ing.
+const UNDEFINED_COLUMN = '42703';
+
+let slugColumnAvailable: boolean | null = null;
+
+function noteSlugColumnMissing(error: any): boolean {
+  if (error?.code !== UNDEFINED_COLUMN || !String(error?.message || '').includes('slug')) {
+    return false;
+  }
+  if (slugColumnAvailable !== false) {
+    console.warn(
+      'properties.slug is missing — run docs/migration/06-add-property-slugs.sql. ' +
+        'Falling back to UUID-only property URLs until then.'
+    );
+  }
+  slugColumnAvailable = false;
+  return true;
+}
+
 // Repository for property listing operations against Supabase
 // Mirrors the interface of the Mongoose Property model
 
@@ -69,6 +90,7 @@ export interface CreatePropertyInput {
   lat?: number;
   lng?: number;
   owner_id: string;
+  status?: string;
   images?: Array<{ url: string; publicId: string }>;
 }
 
@@ -181,7 +203,60 @@ export const propertyRepository = {
 
     const { data, error } = await query;
     if (error) throw error;
-    return (data || []) as PropertyDoc[];
+
+    // Listing cards read `property.images[0].url`, so hydrate the normalized
+    // child table in one batched query rather than leaving every card blank.
+    const properties = (data || []) as PropertyDoc[];
+    await this.attachImages(properties);
+    await this.attachOwners(properties);
+    return properties;
+  },
+
+  // Attach the owner record to a list of properties (single batched query).
+  // The API contract exposes `owner` as an object with contact details.
+  async attachOwners(properties: PropertyDoc[]): Promise<PropertyDoc[]> {
+    if (properties.length === 0) return properties;
+
+    const ownerIds = [...new Set(properties.map((p) => p.owner_id).filter(Boolean))];
+    if (ownerIds.length === 0) return properties;
+
+    const { data, error } = await supabaseClient
+      .from('users')
+      .select('id, name, email, mobile, avatar')
+      .in('id', ownerIds);
+
+    if (error) throw error;
+
+    const byId = new Map((data || []).map((u: any) => [u.id, u]));
+    for (const property of properties) {
+      property.owner = byId.get(property.owner_id) || null;
+    }
+    return properties;
+  },
+
+  // Attach property_images rows to a list of properties (single batched query)
+  async attachImages(properties: PropertyDoc[]): Promise<PropertyDoc[]> {
+    if (properties.length === 0) return properties;
+
+    const { data, error } = await supabaseClient
+      .from('property_images')
+      .select('*')
+      .in('property_id', properties.map((p) => p.id))
+      .order('sort_order', { ascending: true });
+
+    if (error) throw error;
+
+    const byProperty = new Map<string, PropertyImage[]>();
+    for (const image of (data || []) as PropertyImage[]) {
+      const list = byProperty.get(image.property_id) || [];
+      list.push(image);
+      byProperty.set(image.property_id, list);
+    }
+
+    for (const property of properties) {
+      property.images = byProperty.get(property.id) || [];
+    }
+    return properties;
   },
 
   // Find property by ID with optional relations
@@ -199,16 +274,8 @@ export const propertyRepository = {
 
     const property = data as PropertyDoc;
 
-    // Fetch images if requested
-    if (includeImages) {
-      const { data: images } = await supabaseClient
-        .from('property_images')
-        .select('*')
-        .eq('property_id', id)
-        .order('sort_order', { ascending: true });
-
-      property.images = (images || []) as PropertyImage[];
-    }
+    if (includeImages) await this.attachImages([property]);
+    await this.attachOwners([property]);
 
     return property;
   },
@@ -231,12 +298,10 @@ export const propertyRepository = {
 
   // Create a new property
   async create(input: CreatePropertyInput): Promise<PropertyDoc> {
-    // Generate unique slug from title
+    // Generate unique slug from title (null when the column is not deployed yet)
     const slug = await this.generateUniqueSlug(input.title);
 
-    const { data, error } = await supabaseClient
-      .from('properties')
-      .insert({
+    const buildRow = (withSlug: boolean) => ({
         title: input.title,
         description: input.description,
         property_type: input.propertyType,
@@ -257,33 +322,64 @@ export const propertyRepository = {
         lat: input.lat || 0,
         lng: input.lng || 0,
         owner_id: input.owner_id,
-        slug,
-        status: 'draft',
-      })
+        status: input.status || 'draft',
+        ...(withSlug && slug ? { slug } : {}),
+    });
+
+    let { data, error } = await supabaseClient
+      .from('properties')
+      .insert(buildRow(true))
       .select()
       .single();
+
+    // The slug column may not exist in this environment yet; retry without it.
+    if (error && noteSlugColumnMissing(error)) {
+      ({ data, error } = await supabaseClient
+        .from('properties')
+        .insert(buildRow(false))
+        .select()
+        .single());
+    }
 
     if (error) throw error;
     const property = data as PropertyDoc;
 
     // Insert images if provided
     if (input.images && input.images.length > 0) {
-      const imagesToInsert = input.images.map((img, idx) => ({
-        property_id: property.id,
-        url: img.url,
-        public_id: img.publicId,
-        sort_order: idx,
-      }));
-
-      const { error: imgError } = await supabaseClient
-        .from('property_images')
-        .insert(imagesToInsert);
-
-      if (imgError) throw imgError;
-      property.images = imagesToInsert as PropertyImage[];
+      property.images = await this.replaceImages(property.id, input.images);
     }
 
     return property;
+  },
+
+  // Replace the full image set for a property, preserving the given order
+  async replaceImages(
+    propertyId: string,
+    images: Array<{ url: string; publicId?: string }>
+  ): Promise<PropertyImage[]> {
+    const { error: deleteError } = await supabaseClient
+      .from('property_images')
+      .delete()
+      .eq('property_id', propertyId);
+
+    if (deleteError) throw deleteError;
+
+    if (images.length === 0) return [];
+
+    const rows = images.map((img, idx) => ({
+      property_id: propertyId,
+      url: img.url,
+      public_id: img.publicId || `img_${propertyId}_${idx}`,
+      sort_order: idx,
+    }));
+
+    const { data, error } = await supabaseClient
+      .from('property_images')
+      .insert(rows)
+      .select();
+
+    if (error) throw error;
+    return (data || []) as PropertyImage[];
   },
 
   // Update property fields
@@ -481,9 +577,14 @@ export const propertyRepository = {
     return count || 0;
   },
 
-  // Generate a unique slug from title (with retry on collision)
-  async generateUniqueSlug(title: string): Promise<string> {
-    const baseSlug = slugify(title);
+  // Generate a unique slug from title (with retry on collision).
+  // Returns null when the slug column has not been deployed to this environment.
+  async generateUniqueSlug(title: string): Promise<string | null> {
+    if (slugColumnAvailable === false) return null;
+
+    // A title of only punctuation/emoji slugifies to an empty string, which would
+    // collide with every other such title. Fall back to a generic stem.
+    const baseSlug = slugify(title) || 'listing';
     let slug = baseSlug;
     let attempt = 1;
 
@@ -494,9 +595,12 @@ export const propertyRepository = {
         .eq('slug', slug)
         .limit(1);
 
-      if (error && error.code !== 'PGRST116') {
-        throw error;
+      if (error) {
+        if (noteSlugColumnMissing(error)) return null;
+        if (error.code !== 'PGRST116') throw error;
       }
+
+      slugColumnAvailable = true;
 
       if (!data || data.length === 0) {
         return slug; // Slug is unique
@@ -507,40 +611,33 @@ export const propertyRepository = {
       attempt++;
     }
 
-    throw new Error(`Could not generate unique slug for title: ${title}`);
+    // Fall back to a random suffix rather than failing the whole create
+    return `${baseSlug}-${Math.random().toString(36).slice(2, 8)}`;
   },
 
   // Find property by UUID or slug (backward-compatible)
   async findByIdOrSlug(identifier: string, includeImages = true): Promise<PropertyDoc | null> {
-    let query = supabaseClient
+    // Without the slug column, only UUID lookups are possible
+    if (!isUUID(identifier) && slugColumnAvailable === false) return null;
+
+    const column = isUUID(identifier) ? 'id' : 'slug';
+
+    const { data, error } = await supabaseClient
       .from('properties')
-      .select('*');
-
-    if (isUUID(identifier)) {
-      query = query.eq('id', identifier);
-    } else {
-      query = query.eq('slug', identifier);
-    }
-
-    const { data, error } = await query.single();
+      .select('*')
+      .eq(column, identifier)
+      .single();
 
     if (error) {
       if (error.code === 'PGRST116') return null;
+      if (noteSlugColumnMissing(error)) return null;
       throw error;
     }
 
     const property = data as PropertyDoc;
 
-    // Fetch images if requested
-    if (includeImages) {
-      const { data: images } = await supabaseClient
-        .from('property_images')
-        .select('*')
-        .eq('property_id', property.id)
-        .order('sort_order', { ascending: true });
-
-      property.images = (images || []) as PropertyImage[];
-    }
+    if (includeImages) await this.attachImages([property]);
+    await this.attachOwners([property]);
 
     return property;
   },

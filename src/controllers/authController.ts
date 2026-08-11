@@ -38,13 +38,13 @@ export async function register(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const existingUser = await userRepository.findOne({
-      email,
-    });
-    if (existingUser) {
+    const conflict = await userRepository.findConflict(email, mobile);
+    if (conflict) {
       sendError(
         res,
-        'User with this email or mobile already exists',
+        conflict.field === 'email'
+          ? 'An account with this email already exists'
+          : 'An account with this mobile number already exists',
         409
       );
       return;
@@ -81,8 +81,16 @@ export async function register(req: Request, res: Response): Promise<void> {
     );
   } catch (error: any) {
     console.error('Registration error:', error);
-    const message = error?.message || 'Registration failed';
-    sendError(res, message, 500);
+
+    // 23505 = unique_violation. Racing signups can slip past the pre-check above,
+    // so translate it into the same 409 instead of leaking a raw Postgres message.
+    if (error?.code === '23505') {
+      const field = String(error?.message || '').includes('mobile') ? 'mobile number' : 'email';
+      sendError(res, `An account with this ${field} already exists`, 409);
+      return;
+    }
+
+    sendError(res, error?.message || 'Registration failed', 500);
   }
 }
 

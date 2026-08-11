@@ -17,9 +17,17 @@
 
   const app = express();
 
+  console.log('Allowed CORS origins:', env.corsOrigin.join(', '));
+
   app.use(
     cors({
-      origin: env.corsOrigin,
+      origin: (origin, callback) => {
+        // Non-browser callers (curl, server-to-server, health checks) send no Origin
+        if (!origin) return callback(null, true);
+        if (env.corsOrigin.includes(origin)) return callback(null, true);
+        console.warn(`Blocked CORS request from unlisted origin: ${origin}`);
+        return callback(null, false);
+      },
       credentials: true,
     })
   );
