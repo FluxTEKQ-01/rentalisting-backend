@@ -1,9 +1,8 @@
 import { Response } from 'express';
-import mongoose from 'mongoose';
-import { Property } from '../models/Property.js';
-import { User } from '../models/User.js';
-import { Review } from '../models/Review.js';
-import { Notification } from '../models/Notification.js';
+import { propertyRepository } from '../repositories/propertyRepository.js';
+import { userRepository } from '../repositories/userRepository.js';
+import { reviewRepository } from '../repositories/reviewRepository.js';
+import { notificationRepository } from '../repositories/notificationRepository.js';
 import { sendSuccess, sendError } from '../utils/apiResponse.js';
 import type { AuthRequest } from '../types/index.js';
 import { isDatabaseConnected } from '../config/db.js';
@@ -15,7 +14,7 @@ export async function approveProperty(
 ): Promise<void> {
   try {
     const id = req.params.id as string;
-    if (!isDatabaseConnected || !mongoose.Types.ObjectId.isValid(id)) {
+    if (!isDatabaseConnected) {
       const property = inMemoryProperties.find(p => p._id === id);
       if (!property) {
         sendError(res, 'Property not found', 404);
@@ -26,7 +25,7 @@ export async function approveProperty(
       return;
     }
 
-    const property = await Property.findById(id).populate('owner');
+    const property = await propertyRepository.findById(id);
 
     if (!property) {
       sendError(res, 'Property not found', 404);
@@ -38,25 +37,28 @@ export async function approveProperty(
       return;
     }
 
-    property.status = 'published';
-    if (req.user?.userId && mongoose.Types.ObjectId.isValid(req.user.userId)) {
-      property.reviewedBy = new mongoose.Types.ObjectId(req.user.userId);
-    }
-    property.reviewedAt = new Date();
-    await property.save();
+    const updated = await propertyRepository.findByIdAndUpdate(id, {
+      status: 'published',
+      reviewedBy: req.user?.userId,
+      reviewedAt: new Date().toISOString(),
+    });
 
-    const recipientId = (property.owner as any)?._id ?? property.owner;
-    if (recipientId) {
-      await Notification.create({
-        recipient: recipientId,
+    if (!updated) {
+      sendError(res, 'Failed to update property', 500);
+      return;
+    }
+
+    if (property.owner_id) {
+      await notificationRepository.create({
+        recipient_id: property.owner_id,
         type: 'listing_approved',
         title: 'Listing Approved',
-        message: `Your property "${property.title}" has been approved and is now published.`,
-        metadata: { propertyId: property._id },
+        message: `Your property "${updated.title}" has been approved and is now published.`,
+        metadata: { propertyId: updated.id },
       });
     }
 
-    sendSuccess(res, { property }, 'Property approved and published');
+    sendSuccess(res, { property: updated }, 'Property approved and published');
   } catch (error: any) {
     console.error('Error approving property:', error);
     sendError(res, error?.message || 'Failed to approve property', 500);
@@ -80,7 +82,7 @@ export async function rejectProperty(
       return;
     }
 
-    if (!isDatabaseConnected || !mongoose.Types.ObjectId.isValid(id)) {
+    if (!isDatabaseConnected) {
       const property = inMemoryProperties.find(p => p._id === id);
       if (!property) {
         sendError(res, 'Property not found', 404);
@@ -92,7 +94,7 @@ export async function rejectProperty(
       return;
     }
 
-    const property = await Property.findById(id).populate('owner');
+    const property = await propertyRepository.findById(id);
 
     if (!property) {
       sendError(res, 'Property not found', 404);
@@ -104,30 +106,33 @@ export async function rejectProperty(
       return;
     }
 
-    property.status = 'rejected';
-    property.feedback = feedback.trim();
-    property.feedbackProvidedAt = new Date();
-    if (req.user?.userId && mongoose.Types.ObjectId.isValid(req.user.userId)) {
-      property.reviewedBy = new mongoose.Types.ObjectId(req.user.userId);
-    }
-    property.reviewedAt = new Date();
-    await property.save();
+    const updated = await propertyRepository.findByIdAndUpdate(id, {
+      status: 'rejected',
+      feedback: feedback.trim(),
+      feedbackProvidedAt: new Date().toISOString(),
+      reviewedBy: req.user?.userId,
+      reviewedAt: new Date().toISOString(),
+    });
 
-    const recipientId = (property.owner as any)?._id ?? property.owner;
-    if (recipientId) {
-      await Notification.create({
-        recipient: recipientId,
+    if (!updated) {
+      sendError(res, 'Failed to update property', 500);
+      return;
+    }
+
+    if (property.owner_id) {
+      await notificationRepository.create({
+        recipient_id: property.owner_id,
         type: 'listing_rejected',
         title: 'Listing Rejected',
-        message: `Your property "${property.title}" has been rejected. Please check the feedback and resubmit.`,
+        message: `Your property "${updated.title}" has been rejected. Please check the feedback and resubmit.`,
         metadata: {
-          propertyId: property._id,
+          propertyId: updated.id,
           feedback: feedback.trim(),
         },
       });
     }
 
-    sendSuccess(res, { property }, 'Property rejected with feedback');
+    sendSuccess(res, { property: updated }, 'Property rejected with feedback');
   } catch (error: any) {
     console.error('Error rejecting property:', error);
     sendError(res, error?.message || 'Failed to reject property', 500);
@@ -140,7 +145,7 @@ export async function archiveProperty(
 ): Promise<void> {
   try {
     const id = req.params.id as string;
-    if (!isDatabaseConnected || !mongoose.Types.ObjectId.isValid(id)) {
+    if (!isDatabaseConnected) {
       const property = inMemoryProperties.find(p => p._id === id);
       if (!property) {
         sendError(res, 'Property not found', 404);
@@ -151,11 +156,7 @@ export async function archiveProperty(
       return;
     }
 
-    const property = await Property.findByIdAndUpdate(
-      id,
-      { status: 'archived' },
-      { new: true }
-    );
+    const property = await propertyRepository.findByIdAndUpdate(id, { status: 'archived' });
 
     if (!property) {
       sendError(res, 'Property not found', 404);
@@ -194,12 +195,18 @@ export async function getAdminDashboard(
       totalUsers,
       totalReviews,
     ] = await Promise.all([
-      Property.countDocuments(),
-      Property.countDocuments({ status: { $in: ['submitted', 'pending_review'] } }),
-      Property.countDocuments({ status: { $in: ['approved', 'published'] } }),
-      Property.countDocuments({ status: 'rejected' }),
-      User.countDocuments(),
-      Review.countDocuments(),
+      propertyRepository.countDocuments(),
+      Promise.all([
+        propertyRepository.countByStatus('submitted'),
+        propertyRepository.countByStatus('pending_review'),
+      ]).then(([a, b]) => a + b),
+      Promise.all([
+        propertyRepository.countByStatus('approved'),
+        propertyRepository.countByStatus('published'),
+      ]).then(([a, b]) => a + b),
+      propertyRepository.countByStatus('rejected'),
+      userRepository.countDocuments(),
+      reviewRepository.countDocuments(),
     ]);
 
     sendSuccess(res, {
@@ -243,13 +250,19 @@ export async function getUsers(
     const limit = parseInt(req.query.limit as string) || 20;
     const skip = (page - 1) * limit;
 
-    const filter: Record<string, unknown> = {};
-    if (req.query.role) filter.role = req.query.role;
+    let users: any[] = [];
+    let total = 0;
 
-    const [users, total] = await Promise.all([
-      User.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
-      User.countDocuments(filter),
-    ]);
+    const role = req.query.role as string | undefined;
+    if (role && ['admin', 'owner', 'visitor'].includes(role)) {
+      users = await userRepository.findByRole(role as any);
+      total = users.length;
+      users = users.slice(skip, skip + limit);
+    } else {
+      users = await userRepository.find();
+      total = users.length;
+      users = users.slice(skip, skip + limit);
+    }
 
     res.status(200).json({
       success: true,
@@ -280,20 +293,18 @@ export async function toggleUserStatus(
       return;
     }
 
-    const user = await User.findById(req.params.id);
+    const id = req.params.id as string;
+    const user = await userRepository.toggleStatus(id);
 
     if (!user) {
       sendError(res, 'User not found', 404);
       return;
     }
 
-    user.isActive = !user.isActive;
-    await user.save();
-
     sendSuccess(
       res,
       { user },
-      `User ${user.isActive ? 'activated' : 'deactivated'}`
+      `User ${user.is_active ? 'activated' : 'deactivated'}`
     );
   } catch (error) {
     sendError(res, 'Failed to toggle user status', 500);
@@ -305,7 +316,7 @@ export async function deleteUser(
   res: Response
 ): Promise<void> {
   try {
-    const userId = req.params.id;
+    const userId = req.params.id as string;
 
     if (userId === req.user?.userId) {
       sendError(res, 'You cannot delete your own admin account', 400);
@@ -317,16 +328,15 @@ export async function deleteUser(
       return;
     }
 
-    const user = await User.findById(userId);
+    const user = await userRepository.findById(userId);
 
     if (!user) {
       sendError(res, 'User not found', 404);
       return;
     }
 
-    await Property.deleteMany({ owner: userId });
-    await Review.deleteMany({ author: userId });
-    await User.findByIdAndDelete(userId);
+    // Delete user (cascading deletes will handle related records via FK constraints)
+    await userRepository.findByIdAndDelete(userId);
 
     sendSuccess(res, null, 'User deleted successfully');
   } catch (error) {

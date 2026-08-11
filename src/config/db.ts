@@ -1,31 +1,27 @@
-import mongoose from 'mongoose';
-import { env } from './env.js';
+import { supabaseClient } from './supabase.js';
 import { seedDatabase } from '../utils/seeder.js';
 
 export let isDatabaseConnected = false;
 
 export async function connectDB(): Promise<void> {
   try {
-    console.log('Attempting to connect to MongoDB Atlas...');
-    await mongoose.connect(env.mongodbUri, { serverSelectionTimeoutMS: 5000 });
-    console.log('MongoDB connected successfully to Atlas!');
+    console.log('Testing Supabase connection...');
+    // Lightweight test: select a single row from users to verify connectivity
+    const { error, data } = await supabaseClient
+      .from('users')
+      .select('id')
+      .limit(1);
+
+    if (error) {
+      throw error;
+    }
+
+    console.log('✓ Supabase connected successfully');
     isDatabaseConnected = true;
     await seedDatabase();
   } catch (error: any) {
-    console.error('MongoDB Atlas connection failed:', error.message);
-    
-    // Attempt local MongoDB fallback
-    const localUri = 'mongodb://127.0.0.1:27017/rentalisting';
-    try {
-      console.log(`Attempting to connect to local MongoDB at ${localUri}...`);
-      await mongoose.connect(localUri, { serverSelectionTimeoutMS: 3000 });
-      console.log('MongoDB connected successfully to Localhost!');
-      isDatabaseConnected = true;
-      await seedDatabase();
-    } catch (localErr: any) {
-      console.error('Local MongoDB connection failed:', localErr.message);
-      console.warn('⚠️ WARNING: All MongoDB connections failed. Running in Local In-Memory Mock Fallback Mode. App features will remain fully functional.');
-      isDatabaseConnected = false;
-    }
+    console.error('Supabase connection failed:', error.message);
+    console.warn('⚠️ WARNING: Supabase connection failed. Running in Local In-Memory Mock Fallback Mode. App features will remain fully functional.');
+    isDatabaseConnected = false;
   }
 }

@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { Notification } from '../models/Notification.js';
+import { notificationRepository } from '../repositories/notificationRepository.js';
 import { sendSuccess, sendError, sendPaginated } from '../utils/apiResponse.js';
 import type { AuthRequest } from '../types/index.js';
 
@@ -11,17 +11,12 @@ export async function getNotifications(
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const skip = (page - 1) * limit;
+    const userId = req.user!.userId;
 
     const [notifications, total, unreadCount] = await Promise.all([
-      Notification.find({ recipient: req.user!.userId })
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit),
-      Notification.countDocuments({ recipient: req.user!.userId }),
-      Notification.countDocuments({
-        recipient: req.user!.userId,
-        isRead: false,
-      }),
+      notificationRepository.find(userId, { skip, limit }),
+      notificationRepository.countByRecipient(userId),
+      notificationRepository.countUnread(userId),
     ]);
 
     res.status(200).json({
@@ -45,14 +40,8 @@ export async function markAsRead(
   res: Response
 ): Promise<void> {
   try {
-    const notification = await Notification.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        recipient: req.user!.userId,
-      },
-      { isRead: true },
-      { new: true }
-    );
+    const id = req.params.id as string;
+    const notification = await notificationRepository.markAsRead(id);
 
     if (!notification) {
       sendError(res, 'Notification not found', 404);
@@ -70,13 +59,8 @@ export async function markAllAsRead(
   res: Response
 ): Promise<void> {
   try {
-    await Notification.updateMany(
-      {
-        recipient: req.user!.userId,
-        isRead: false,
-      },
-      { isRead: true }
-    );
+    const userId = req.user!.userId;
+    await notificationRepository.markAllAsRead(userId);
 
     sendSuccess(res, null, 'All notifications marked as read');
   } catch (error) {

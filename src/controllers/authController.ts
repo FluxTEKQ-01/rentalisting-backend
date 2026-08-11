@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { User } from '../models/User.js';
+import { userRepository } from '../repositories/userRepository.js';
 import { hashPassword, comparePassword } from '../utils/password.js';
 import {
   generateAccessToken,
@@ -38,8 +38,8 @@ export async function register(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const existingUser = await User.findOne({
-      $or: [{ email }, { mobile }],
+    const existingUser = await userRepository.findOne({
+      email,
     });
     if (existingUser) {
       sendError(
@@ -51,7 +51,7 @@ export async function register(req: Request, res: Response): Promise<void> {
     }
 
     const hashedPassword = await hashPassword(password);
-    const user = await User.create({
+    const user = await userRepository.create({
       name,
       email,
       mobile,
@@ -59,7 +59,7 @@ export async function register(req: Request, res: Response): Promise<void> {
       role: role || 'owner',
     });
 
-    const payload = { userId: user._id.toString(), role: user.role as UserRole };
+    const payload = { userId: user.id, role: user.role as UserRole };
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
@@ -67,7 +67,7 @@ export async function register(req: Request, res: Response): Promise<void> {
       res,
       {
         user: {
-          id: user._id,
+          id: user.id,
           name: user.name,
           email: user.email,
           mobile: user.mobile,
@@ -118,30 +118,30 @@ export async function login(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const user = await User.findOne({ email }).select('+password');
+    const user = await userRepository.findOne({ email });
     if (!user) {
       sendError(res, 'Invalid email or password', 401);
       return;
     }
 
-    if (!user.isActive) {
+    if (!user.is_active) {
       sendError(res, 'Account has been deactivated', 403);
       return;
     }
 
-    const isMatch = await comparePassword(password, user.password);
+    const isMatch = await comparePassword(password, user.password_hash);
     if (!isMatch) {
       sendError(res, 'Invalid email or password', 401);
       return;
     }
 
-    const payload = { userId: user._id.toString(), role: user.role as UserRole };
+    const payload = { userId: user.id, role: user.role as UserRole };
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
     sendSuccess(res, {
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
         mobile: user.mobile,
@@ -175,14 +175,14 @@ export async function refreshToken(
     }
 
     const decoded = verifyRefreshToken(token);
-    const user = await User.findById(decoded.userId);
+    const user = await userRepository.findById(decoded.userId);
 
-    if (!user || !user.isActive) {
+    if (!user || !user.is_active) {
       sendError(res, 'Invalid refresh token', 401);
       return;
     }
 
-    const payload = { userId: user._id.toString(), role: user.role as UserRole };
+    const payload = { userId: user.id, role: user.role as UserRole };
     const accessToken = generateAccessToken(payload);
     const newRefreshToken = generateRefreshToken(payload);
 
@@ -221,7 +221,7 @@ export async function getProfile(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const user = await User.findById(userId);
+    const user = await userRepository.findByIdSafe(userId);
 
     if (!user) {
       sendError(res, 'User not found', 404);

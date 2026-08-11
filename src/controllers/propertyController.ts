@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
-import mongoose from 'mongoose';
-import { Property } from '../models/Property.js';
-import { Notification } from '../models/Notification.js';
-import { User } from '../models/User.js';
+import { propertyRepository } from '../repositories/propertyRepository.js';
+import { userRepository } from '../repositories/userRepository.js';
+import { notificationRepository } from '../repositories/notificationRepository.js';
 import { sendSuccess, sendError, sendPaginated } from '../utils/apiResponse.js';
 import type { AuthRequest, PropertyQuery } from '../types/index.js';
 import { isDatabaseConnected } from '../config/db.js';
@@ -245,10 +244,12 @@ export async function createProperty(
       return;
     }
 
-    const property = await Property.create({
+    const property = await propertyRepository.create({
       title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea,
-      amenities, videoUrl, location, images,
-      owner: req.user!.userId,
+      amenities, videoUrl, address: location.address, city: location.city, state: location.state, zipCode: location.zipCode,
+      lat: location.coordinates?.lat, lng: location.coordinates?.lng,
+      images,
+      owner_id: req.user!.userId,
     });
     sendSuccess(res, { property }, 'Property created', 201);
   } catch (error) {
@@ -395,26 +396,25 @@ export async function getProperties(
       filter.amenities = { $all: amenities };
     }
 
-    let sortOption: Record<string, 1 | -1> = { createdAt: -1 };
+    let sortBy = 'created_at';
+    let order: 'asc' | 'desc' = 'desc';
     switch (query.sort) {
       case 'oldest':
-        sortOption = { createdAt: 1 };
+        order = 'asc';
         break;
       case 'price_low':
-        sortOption = { price: 1 };
+        sortBy = 'price';
+        order = 'asc';
         break;
       case 'price_high':
-        sortOption = { price: -1 };
+        sortBy = 'price';
+        order = 'desc';
         break;
     }
 
     const [properties, total] = await Promise.all([
-      Property.find(filter)
-        .populate('owner', 'name email mobile avatar')
-        .sort(sortOption)
-        .skip(skip)
-        .limit(limit),
-      Property.countDocuments(filter),
+      propertyRepository.find({ ...filter, skip, limit, sort: sortBy, order }),
+      propertyRepository.countDocuments(filter),
     ]);
 
     sendPaginated(res, properties, total, page, limit);
@@ -430,7 +430,7 @@ export async function getPropertyById(
 ): Promise<void> {
   try {
     const id = req.params.id as string;
-    if (!isDatabaseConnected || !mongoose.Types.ObjectId.isValid(id)) {
+    if (!isDatabaseConnected) {
       initInMemoryStore();
       const property = inMemoryProperties.find(p => p._id === id);
       if (!property) {
@@ -441,9 +441,8 @@ export async function getPropertyById(
       return;
     }
 
-    const property = await Property.findById(id)
-      .populate('owner', 'name email mobile avatar')
-      .populate('reviewedBy', 'name');
+    // Find by UUID or slug (backward-compatible)
+    const property = await propertyRepository.findByIdOrSlug(id);
 
     if (!property) {
       sendError(res, 'Property not found', 404);
@@ -453,7 +452,7 @@ export async function getPropertyById(
     if (
       property.status !== 'published' &&
       req.user?.role !== 'admin' &&
-      (property.owner?._id?.toString() ?? property.owner?.toString()) !== req.user?.userId
+      property.owner_id !== req.user?.userId
     ) {
       sendError(res, 'Property not found', 404);
       return;
@@ -503,7 +502,8 @@ export async function updateProperty(
       return;
     }
 
-    const property = await Property.findById(req.params.id);
+    const id = req.params.id as string;
+    const property = await propertyRepository.findById(id);
 
     if (!property) {
       sendError(res, 'Property not found', 404);
@@ -511,7 +511,7 @@ export async function updateProperty(
     }
 
     if (
-      (property.owner?._id?.toString() ?? property.owner?.toString()) !== req.user!.userId &&
+      property.owner_id !== req.user!.userId &&
       req.user!.role !== 'admin'
     ) {
       sendError(res, 'Not authorized to update this property', 403);
@@ -523,7 +523,7 @@ export async function updateProperty(
       return;
     }
 
-    const updateData: Record<string, unknown> = {};
+    const updateData: any = {};
     if (title !== undefined) updateData.title = title;
     if (description !== undefined) updateData.description = description;
     if (propertyType !== undefined) updateData.propertyType = propertyType;
@@ -536,16 +536,21 @@ export async function updateProperty(
     if (amenities !== undefined) updateData.amenities = amenities;
     if (videoUrl !== undefined) updateData.videoUrl = videoUrl;
     if (location !== undefined) {
-      location.coordinates = resolvePropertyCoordinates(location);
-      updateData.location = location;
+      const coords = resolvePropertyCoordinates(location);
+      updateData.address = location.address;
+      updateData.city = location.city;
+      updateData.state = location.state;
+      updateData.zipCode = location.zipCode;
+      updateData.lat = coords.lat;
+      updateData.lng = coords.lng;
     }
-    if (images !== undefined) updateData.images = images;
 
-    const updatedProperty = await Property.findByIdAndUpdate(
-      req.params.id,
-      { $set: updateData },
-      { new: true, runValidators: true }
-    );
+    const updatedProperty = await propertyRepository.findByIdAndUpdate(id, updateData);
+
+    if (!updatedProperty) {
+      sendError(res, 'Failed to update property', 500);
+      return;
+    }
 
     sendSuccess(res, { property: updatedProperty }, 'Property updated');
   } catch (error) {
@@ -570,14 +575,15 @@ export async function submitProperty(
       return;
     }
 
-    const property = await Property.findById(req.params.id);
+    const id = req.params.id as string;
+    const property = await propertyRepository.findById(id);
 
     if (!property) {
       sendError(res, 'Property not found', 404);
       return;
     }
 
-    if ((property.owner?._id?.toString() ?? property.owner?.toString()) !== req.user!.userId) {
+    if (property.owner_id !== req.user!.userId) {
       sendError(res, 'Not authorized', 403);
       return;
     }
@@ -587,18 +593,17 @@ export async function submitProperty(
       return;
     }
 
-    property.status = 'submitted';
-    await property.save();
+    await propertyRepository.updateStatus(id, 'submitted');
 
-    const admins = await User.find({ role: 'admin' });
+    const admins = await userRepository.findByRole('admin');
     const notifications = admins.map((admin) => ({
-      recipient: admin._id,
+      recipient_id: admin.id,
       type: 'new_submission' as const,
       title: 'New Listing Submitted',
       message: `Property "${property.title}" has been submitted for review.`,
-      metadata: { propertyId: property._id },
+      metadata: { propertyId: property.id },
     }));
-    await Notification.insertMany(notifications);
+    await notificationRepository.createBulk(notifications);
 
     sendSuccess(res, { property }, 'Property submitted for review');
   } catch (error) {
@@ -623,14 +628,15 @@ export async function resubmitProperty(
       return;
     }
 
-    const property = await Property.findById(req.params.id);
+    const id = req.params.id as string;
+    const property = await propertyRepository.findById(id);
 
     if (!property) {
       sendError(res, 'Property not found', 404);
       return;
     }
 
-    if ((property.owner?._id?.toString() ?? property.owner?.toString()) !== req.user!.userId) {
+    if (property.owner_id !== req.user!.userId) {
       sendError(res, 'Not authorized', 403);
       return;
     }
@@ -642,38 +648,48 @@ export async function resubmitProperty(
 
     const { title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea, amenities, videoUrl, location, images } = req.body;
 
-    if (title) property.title = title;
-    if (description) property.description = description;
-    if (propertyType) property.propertyType = propertyType;
-    if (price !== undefined) property.price = price;
-    if (maxPrice !== undefined) property.maxPrice = maxPrice;
-    if (bedrooms !== undefined) property.bedrooms = bedrooms;
-    if (bathrooms !== undefined) property.bathrooms = bathrooms;
-    if (area !== undefined) property.area = area;
-    if (maxArea !== undefined) property.maxArea = maxArea;
-    if (amenities) property.amenities = amenities;
-    if (videoUrl !== undefined) property.videoUrl = videoUrl;
+    const updates: any = {};
+    if (title) updates.title = title;
+    if (description) updates.description = description;
+    if (propertyType) updates.propertyType = propertyType;
+    if (price !== undefined) updates.price = price;
+    if (maxPrice !== undefined) updates.maxPrice = maxPrice;
+    if (bedrooms !== undefined) updates.bedrooms = bedrooms;
+    if (bathrooms !== undefined) updates.bathrooms = bathrooms;
+    if (area !== undefined) updates.area = area;
+    if (maxArea !== undefined) updates.maxArea = maxArea;
+    if (amenities) updates.amenities = amenities;
+    if (videoUrl !== undefined) updates.videoUrl = videoUrl;
     if (location) {
-      location.coordinates = resolvePropertyCoordinates(location);
-      property.location = location;
+      const coords = resolvePropertyCoordinates(location);
+      updates.address = location.address;
+      updates.city = location.city;
+      updates.state = location.state;
+      updates.zipCode = location.zipCode;
+      updates.lat = coords.lat;
+      updates.lng = coords.lng;
     }
-    if (images !== undefined) property.images = images;
+    updates.status = 'pending_review';
+    updates.feedback = '';
 
-    property.status = 'pending_review';
-    property.feedback = '';
-    await property.save();
+    const updated = await propertyRepository.findByIdAndUpdate(id, updates);
 
-    const admins = await User.find({ role: 'admin' });
+    if (!updated) {
+      sendError(res, 'Failed to update property', 500);
+      return;
+    }
+
+    const admins = await userRepository.findByRole('admin');
     const notifications = admins.map((admin) => ({
-      recipient: admin._id,
+      recipient_id: admin.id,
       type: 'listing_resubmitted' as const,
       title: 'Listing Resubmitted',
-      message: `Property "${property.title}" has been resubmitted for review.`,
-      metadata: { propertyId: property._id },
+      message: `Property "${updated.title}" has been resubmitted for review.`,
+      metadata: { propertyId: updated.id },
     }));
-    await Notification.insertMany(notifications);
+    await notificationRepository.createBulk(notifications);
 
-    sendSuccess(res, { property }, 'Property resubmitted for review');
+    sendSuccess(res, { property: updated }, 'Property resubmitted for review');
   } catch (error) {
     sendError(res, 'Failed to resubmit property', 500);
   }
@@ -696,7 +712,8 @@ export async function deleteProperty(
       return;
     }
 
-    const property = await Property.findById(req.params.id);
+    const id = req.params.id as string;
+    const property = await propertyRepository.findById(id);
 
     if (!property) {
       sendError(res, 'Property not found', 404);
@@ -704,14 +721,14 @@ export async function deleteProperty(
     }
 
     if (
-      (property.owner?._id?.toString() ?? property.owner?.toString()) !== req.user!.userId &&
+      property.owner_id !== req.user!.userId &&
       req.user!.role !== 'admin'
     ) {
       sendError(res, 'Not authorized', 403);
       return;
     }
 
-    await Property.findByIdAndDelete(req.params.id);
+    await propertyRepository.findByIdAndDelete(id);
     sendSuccess(res, null, 'Property deleted');
   } catch (error) {
     sendError(res, 'Failed to delete property', 500);
@@ -735,18 +752,16 @@ export async function getOwnerProperties(
       return;
     }
 
-    const filter: Record<string, unknown> = {
-      owner: req.user!.userId,
-    };
-
-    if (query.status) filter.status = query.status;
-
     const [properties, total] = await Promise.all([
-      Property.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit),
-      Property.countDocuments(filter),
+      propertyRepository.find({
+        owner_id: req.user!.userId,
+        status: query.status,
+        skip,
+        limit,
+        sort: 'created_at',
+        order: 'desc',
+      }),
+      propertyRepository.countByOwner(req.user!.userId, query.status),
     ]);
 
     sendPaginated(res, properties, total, page, limit);
@@ -767,9 +782,8 @@ export async function contactPropertyOwner(req: Request, res: Response): Promise
 
     let property: any = null;
     const propertyIdStr = String(id);
-    if (mongoose.Types.ObjectId.isValid(propertyIdStr)) {
-      property = await Property.findById(propertyIdStr).populate('owner');
-    }
+    property = await propertyRepository.findById(propertyIdStr);
+
     if (!property) {
       property = inMemoryProperties.find((p) => p._id === propertyIdStr);
     }
@@ -779,18 +793,20 @@ export async function contactPropertyOwner(req: Request, res: Response): Promise
       return;
     }
 
-    const ownerObj = property.owner;
-    const ownerId = ownerObj?._id ?? ownerObj;
-    const recipientIdStr = ownerId ? String(ownerId) : null;
+    const ownerId = property.owner_id;
+    let ownerEmail: string | undefined;
 
-    if (recipientIdStr && mongoose.Types.ObjectId.isValid(recipientIdStr)) {
-      await Notification.create({
-        recipient: new mongoose.Types.ObjectId(recipientIdStr),
+    if (ownerId) {
+      const owner = await userRepository.findById(ownerId);
+      ownerEmail = owner?.email;
+
+      await notificationRepository.create({
+        recipient_id: ownerId,
         type: 'inquiry',
         title: `New Inquiry for ${property.title}`,
         message: `${name} (${email}${phone ? `, Ph: ${phone}` : ''}) sent an inquiry: "${message}"`,
         metadata: {
-          propertyId: property._id,
+          propertyId: property.id,
           propertyTitle: property.title,
           senderName: name,
           senderEmail: email,
@@ -807,7 +823,7 @@ export async function contactPropertyOwner(req: Request, res: Response): Promise
       {
         inquirySent: true,
         propertyTitle: property.title,
-        ownerEmail: ownerObj?.email || undefined,
+        ownerEmail,
       },
       'Inquiry sent successfully to the property owner!'
     );

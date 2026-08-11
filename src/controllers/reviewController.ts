@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { Review } from '../models/Review.js';
+import { reviewRepository } from '../repositories/reviewRepository.js';
 import { sendSuccess, sendError } from '../utils/apiResponse.js';
 import type { AuthRequest } from '../types/index.js';
 
@@ -29,7 +29,7 @@ export async function createReview(
   res: Response
 ): Promise<void> {
   try {
-    const propertyId = req.params.propertyId;
+    const propertyId = req.params.propertyId as string;
     const { rating, comment, userName } = req.body;
 
     if (!rating || !comment) {
@@ -40,13 +40,13 @@ export async function createReview(
     const reviewerName = (req.user as any)?.name || userName || 'Verified Tenant';
 
     try {
-      const review = await Review.create({
-        property: propertyId,
-        user: req.user?.userId || undefined,
-        userName: reviewerName,
+      const review = await reviewRepository.create({
+        property_id: propertyId,
+        user_id: req.user?.userId || undefined,
+        user_name: reviewerName,
         rating: Number(rating),
         comment: comment.trim(),
-        isApproved: true,
+        is_approved: true,
       });
 
       sendSuccess(res, { review }, 'Review submitted successfully', 201);
@@ -75,15 +75,15 @@ export async function getPropertyReviews(
   res: Response
 ): Promise<void> {
   try {
-    const propertyId = req.params.propertyId;
+    const propertyId = req.params.propertyId as string;
 
     try {
-      const reviews = await Review.find({ property: propertyId, isApproved: true })
-        .populate('user', 'name avatar')
-        .sort({ createdAt: -1 });
+      const reviews = await reviewRepository.find(propertyId);
+      // Filter for approved reviews only
+      const approvedReviews = reviews.filter(r => r.is_approved);
 
-      if (reviews.length > 0) {
-        sendSuccess(res, { reviews }, 'Property reviews retrieved');
+      if (approvedReviews.length > 0) {
+        sendSuccess(res, { reviews: approvedReviews }, 'Property reviews retrieved');
         return;
       }
     } catch {
@@ -104,16 +104,17 @@ export async function updateReview(
   res: Response
 ): Promise<void> {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { rating, comment, userName } = req.body;
 
     try {
-      const review = await Review.findById(id);
+      const updates: any = {};
+      if (rating) updates.rating = Number(rating);
+      if (comment) updates.comment = comment.trim();
+      if (userName) updates.user_name = userName.trim();
+
+      const review = await reviewRepository.findByIdAndUpdate(id, updates);
       if (review) {
-        if (rating) review.rating = Number(rating);
-        if (comment) review.comment = comment.trim();
-        if (userName) review.userName = userName.trim();
-        await review.save();
         sendSuccess(res, { review }, 'Review updated successfully');
         return;
       }
@@ -141,10 +142,10 @@ export async function deleteReview(
   res: Response
 ): Promise<void> {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
 
     try {
-      const review = await Review.findByIdAndDelete(id);
+      const review = await reviewRepository.findByIdAndDelete(id);
       if (review) {
         sendSuccess(res, null, 'Review deleted successfully');
         return;
@@ -172,7 +173,7 @@ export async function getAllReviews(
 ): Promise<void> {
   try {
     try {
-      const reviews = await Review.find({}).sort({ createdAt: -1 });
+      const reviews = await reviewRepository.find_all();
       sendSuccess(res, { reviews }, 'All reviews retrieved');
       return;
     } catch {

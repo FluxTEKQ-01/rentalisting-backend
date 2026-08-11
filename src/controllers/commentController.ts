@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Comment } from '../models/Comment.js';
+import { commentRepository } from '../repositories/commentRepository.js';
 import { isDatabaseConnected } from '../config/db.js';
 import { sendSuccess, sendError, sendPaginated } from '../utils/apiResponse.js';
 
@@ -17,7 +17,7 @@ export async function createComment(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const newComment = await Comment.create({ propertyId, name, email, address, comment });
+    const newComment = await commentRepository.create({ property_id: propertyId, name, email, address: address || '', comment });
     sendSuccess(res, { comment: newComment }, 'Comment added successfully', 201);
   } catch (error) {
     sendError(res, 'Failed to add comment', 500);
@@ -26,7 +26,7 @@ export async function createComment(req: Request, res: Response): Promise<void> 
 
 export async function getComments(req: Request, res: Response): Promise<void> {
   try {
-    const { propertyId } = req.params;
+    const propertyId = req.params.propertyId as string;
     const page = parseInt(req.query.page as string || '1', 10);
     const limit = parseInt(req.query.limit as string || '20', 10);
     const skip = (page - 1) * limit;
@@ -37,8 +37,8 @@ export async function getComments(req: Request, res: Response): Promise<void> {
     }
 
     const [comments, total] = await Promise.all([
-      Comment.find({ propertyId }).sort({ createdAt: -1 }).skip(skip).limit(limit),
-      Comment.countDocuments({ propertyId }),
+      commentRepository.find(propertyId, { skip, limit }),
+      commentRepository.countByProperty(propertyId),
     ]);
 
     sendPaginated(res, comments, total, page, limit);

@@ -11,7 +11,6 @@ function requireEnv(name: string): string {
 
 export const env = {
   port: parseInt(process.env.PORT || '5000', 10),
-  mongodbUri: requireEnv('MONGODB_URI'),
   jwtSecret: requireEnv('JWT_SECRET'),
   jwtRefreshSecret: requireEnv('JWT_REFRESH_SECRET'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '15m',
@@ -23,4 +22,7 @@ export const env = {
   },
   // CORS origins must not include a trailing slash.
   corsOrigin: process.env.CORS_ORIGIN || 'https://rentalisting.vercel.app',
+  // Supabase PostgreSQL (Phase 2+ migration target)
+  supabaseUrl: requireEnv('SUPABASE_URL'),
+  supabaseServiceRoleKey: requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
 };
