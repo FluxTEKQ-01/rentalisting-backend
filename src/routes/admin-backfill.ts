@@ -80,11 +80,12 @@ router.post('/backfill-missing-data', async (req, res) => {
       // 2. Backfill Properties
       try {
         const mongoProperties = await db.collection('properties').find({}).toArray();
-        const { data: supabaseProps } = await supabaseClient.from('properties').select('title');
-        const supabaseTitles = new Set(supabaseProps?.map((p: any) => p.title) || []);
+        const { data: supabaseProps } = await supabaseClient.from('properties').select('created_at, city, title');
+        const supabasePropSet = new Set(supabaseProps?.map((p: any) => `${p.city}-${p.title}`) || []);
 
         for (const mongoProp of mongoProperties) {
-          if (!supabaseTitles.has(mongoProp.title)) {
+          const propKey = `${mongoProp.location?.city}-${mongoProp.title}`;
+          if (!supabasePropSet.has(propKey)) {
             const propId = hashObjectId(mongoProp._id.toString());
             const ownerObjectId = mongoProp.owner?.toString();
             const ownerId = mongoIdToSupabaseId.get(ownerObjectId) ||
