@@ -3,3 +3,10 @@ dist/
 .env
 *.log
 *.md
+
+# Tooling / AI agent directories
+.claude/
+.codex/
+.impeccable/
+.agents/
+.playwright-mcp/
