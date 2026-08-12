@@ -23,11 +23,14 @@ export async function register(req: Request, res: Response): Promise<void> {
         res,
         {
           user: {
-            id: mockId,
+            _id: mockId,
             name,
             email,
             mobile,
             role: role || 'owner',
+            avatar: '',
+            isActive: true,
+            createdAt: new Date().toISOString(),
           },
           accessToken,
           refreshToken,
@@ -67,11 +70,14 @@ export async function register(req: Request, res: Response): Promise<void> {
       res,
       {
         user: {
-          id: user.id,
+          _id: user.id,
           name: user.name,
           email: user.email,
           mobile: user.mobile,
           role: user.role,
+          avatar: user.avatar || '',
+          isActive: user.is_active,
+          createdAt: user.created_at,
         },
         accessToken,
         refreshToken,
@@ -116,11 +122,14 @@ export async function login(req: Request, res: Response): Promise<void> {
 
       sendSuccess(res, {
         user: {
-          id: mockId,
+          _id: mockId,
           name,
           email,
           mobile: '5555555555',
           role,
+          avatar: '',
+          isActive: true,
+          createdAt: new Date().toISOString(),
         },
         accessToken,
         refreshToken,
@@ -226,6 +235,10 @@ export async function getProfile(req: Request, res: Response): Promise<void> {
           name,
           email,
           role,
+          mobile: '5555555555',
+          avatar: '',
+          isActive: true,
+          createdAt: new Date().toISOString(),
         }
       });
       return;
