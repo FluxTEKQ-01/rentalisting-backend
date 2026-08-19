@@ -1,4 +1,4 @@
-﻿import { Response } from 'express';
+import { Response } from 'express';
 import { propertyRepository } from '../repositories/propertyRepository.js';
 import { userRepository } from '../repositories/userRepository.js';
 import { reviewRepository } from '../repositories/reviewRepository.js';
@@ -33,10 +33,7 @@ export async function approveProperty(
       return;
     }
 
-    if (property.status !== 'submitted' && property.status !== 'pending_review') {
-      sendError(res, 'Property is not pending review', 400);
-      return;
-    }
+    // Admin has authority to approve/publish listing from any state
 
     const updated = await propertyRepository.findByIdAndUpdate(id, {
       status: 'published',
@@ -102,10 +99,7 @@ export async function rejectProperty(
       return;
     }
 
-    if (property.status !== 'submitted' && property.status !== 'pending_review') {
-      sendError(res, 'Property is not pending review', 400);
-      return;
-    }
+    // Admin has authority to reject listing from any state
 
     const updated = await propertyRepository.findByIdAndUpdate(id, {
       status: 'rejected',

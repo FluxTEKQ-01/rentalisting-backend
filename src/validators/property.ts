@@ -38,12 +38,13 @@ export const createPropertySchema = z.object({
       'shooting_location',
       'storage',
     ]),
-    price: z.number().min(0, 'Price cannot be negative'),
-    maxPrice: z.number().min(0).optional(),
+    price: z.union([z.number().min(0), z.string().min(1)]),
+    maxPrice: z.union([z.number().min(0), z.string().min(1)]).optional(),
     bedrooms: z.number().int().min(0).optional().default(0),
     bathrooms: z.number().int().min(0).optional().default(0),
-    area: z.number().min(0, 'Area cannot be negative'),
+    area: z.union([z.number().min(0), z.string().min(1)]),
     maxArea: z.number().min(0).optional(),
+    areaUnit: z.string().optional().default('sqft'),
     amenities: z.array(z.string()).optional().default([]),
     videoUrl: z.string().optional().default(''),
     location: locationSchema,
@@ -61,12 +62,13 @@ export const updatePropertySchema = z.object({
     propertyType: z
       .enum(['office', 'shop_retail', 'warehouse', 'house_apartment', 'apartment', 'villa', 'open_plot_land', 'event_venue', 'coworking', 'commercial_building', 'parking', 'showroom', 'industrial', 'hotel_banquet', 'shooting_location', 'storage'])
       .optional(),
-    price: z.number().min(0).optional(),
-    maxPrice: z.number().min(0).optional(),
+    price: z.union([z.number().min(0), z.string().min(1)]).optional(),
+    maxPrice: z.union([z.number().min(0), z.string().min(1)]).optional(),
     bedrooms: z.number().int().min(0).optional(),
     bathrooms: z.number().int().min(0).optional(),
-    area: z.number().min(0).optional(),
+    area: z.union([z.number().min(0), z.string().min(1)]).optional(),
     maxArea: z.number().min(0).optional(),
+    areaUnit: z.string().optional(),
     amenities: z.array(z.string()).optional(),
     images: z
       .array(

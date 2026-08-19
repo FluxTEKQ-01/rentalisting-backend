@@ -89,10 +89,16 @@ export async function uploadImages(
       }
     }
 
-    // Convert exact uploaded file buffers into Base64 Data URIs so the user's actual submitted images are saved & displayed
+    // Fallback: Store locally uploaded images with size warning
     const results = files.map((file, index) => {
       const mime = file.mimetype || 'image/jpeg';
       const base64 = file.buffer.toString('base64');
+
+      // Warn if base64 is extremely large (>5MB string size indicates >4MB image)
+      if (base64.length > 5242880) {
+        console.warn(`[Upload] Base64 data URL exceeds 5MB: ${(base64.length / 1048576).toFixed(2)}MB. Image may not display properly in database.`);
+      }
+
       const dataUrl = `data:${mime};base64,${base64}`;
       return {
         url: dataUrl,
@@ -100,7 +106,8 @@ export async function uploadImages(
       };
     });
 
-    sendSuccess(res, { images: results }, 'Images uploaded successfully', 201);
+    console.log(`[Upload] Fallback: ${results.length} images stored as data URIs (total size: ${results.reduce((sum, r) => sum + r.url.length, 0) / 1048576}MB)`);
+    sendSuccess(res, { images: results }, 'Images uploaded successfully (local fallback)', 201);
   } catch (error) {
     console.error('Error in uploadImages:', error);
     sendError(res, 'Failed to upload images', 500);

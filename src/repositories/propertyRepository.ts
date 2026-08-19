@@ -104,6 +104,7 @@ export interface UpdatePropertyInput {
   bathrooms?: number;
   area?: number;
   maxArea?: number;
+  areaUnit?: string;
   amenities?: string[];
   videoUrl?: string;
   address?: string;
@@ -238,16 +239,33 @@ export const propertyRepository = {
   async attachImages(properties: PropertyDoc[]): Promise<PropertyDoc[]> {
     if (properties.length === 0) return properties;
 
+    const propertyIds = properties.map((p) => p.id);
+    console.log(`[attachImages] Attempting to fetch images for ${propertyIds.length} properties: ${propertyIds.join(', ')}`);
+
     const { data, error } = await supabaseClient
       .from('property_images')
-      .select('*')
-      .in('property_id', properties.map((p) => p.id))
+      .select('id, property_id, url, public_id, sort_order, created_at')
+      .in('property_id', propertyIds)
       .order('sort_order', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.error('[attachImages] Query error:', error);
+      throw error;
+    }
+
+    console.log(`[attachImages] Query returned ${(data || []).length} images`);
+    if (data && data.length > 0) {
+      (data as PropertyImage[]).forEach((img, idx) => {
+        console.log(`  Image ${idx}: property_id=${img.property_id}, url_length=${img.url?.length || 0}, public_id=${img.public_id}`);
+      });
+    }
 
     const byProperty = new Map<string, PropertyImage[]>();
     for (const image of (data || []) as PropertyImage[]) {
+      if (!image.url || image.url.trim() === '') {
+        console.warn(`[attachImages] Empty URL for image ${image.id} of property ${image.property_id}`);
+        continue;
+      }
       const list = byProperty.get(image.property_id) || [];
       list.push(image);
       byProperty.set(image.property_id, list);
@@ -255,6 +273,9 @@ export const propertyRepository = {
 
     for (const property of properties) {
       property.images = byProperty.get(property.id) || [];
+      if (!property.images || property.images.length === 0) {
+        console.warn(`[attachImages] No images found for property ${property.id} (${property.title})`);
+      }
     }
     return properties;
   },
@@ -298,6 +319,8 @@ export const propertyRepository = {
 
   // Create a new property
   async create(input: CreatePropertyInput): Promise<PropertyDoc> {
+    console.log(`[create] Creating property: "${input.title}" with ${input.images?.length || 0} images`);
+
     // Generate unique slug from title (null when the column is not deployed yet)
     const slug = await this.generateUniqueSlug(input.title);
 
@@ -334,6 +357,7 @@ export const propertyRepository = {
 
     // The slug column may not exist in this environment yet; retry without it.
     if (error && noteSlugColumnMissing(error)) {
+      console.log(`[create] Retrying without slug column`);
       ({ data, error } = await supabaseClient
         .from('properties')
         .insert(buildRow(false))
@@ -341,12 +365,26 @@ export const propertyRepository = {
         .single());
     }
 
-    if (error) throw error;
+    if (error) {
+      console.error(`[create] Failed to insert property:`, error);
+      throw error;
+    }
     const property = data as PropertyDoc;
+    console.log(`[create] Property created with ID: ${property.id}`);
 
-    // Insert images if provided
+    // Insert images if provided - CRITICAL: Must await this
     if (input.images && input.images.length > 0) {
-      property.images = await this.replaceImages(property.id, input.images);
+      try {
+        console.log(`[create] Inserting ${input.images.length} images for property ${property.id}`);
+        property.images = await this.replaceImages(property.id, input.images);
+        console.log(`[create] Successfully inserted ${property.images.length} images`);
+      } catch (imageError) {
+        console.error(`[create] Failed to insert images for property ${property.id}:`, imageError);
+        throw imageError;
+      }
+    } else {
+      property.images = [];
+      console.log(`[create] No images to insert for property ${property.id}`);
     }
 
     return property;
@@ -357,28 +395,47 @@ export const propertyRepository = {
     propertyId: string,
     images: Array<{ url: string; publicId?: string }>
   ): Promise<PropertyImage[]> {
+    console.log(`[replaceImages] Replacing ${images.length} images for property ${propertyId}`);
+
     const { error: deleteError } = await supabaseClient
       .from('property_images')
       .delete()
       .eq('property_id', propertyId);
 
-    if (deleteError) throw deleteError;
+    if (deleteError) {
+      console.error('[replaceImages] Delete error:', deleteError);
+      throw deleteError;
+    }
 
-    if (images.length === 0) return [];
+    if (images.length === 0) {
+      console.log(`[replaceImages] No images to insert for property ${propertyId}`);
+      return [];
+    }
 
-    const rows = images.map((img, idx) => ({
-      property_id: propertyId,
-      url: img.url,
-      public_id: img.publicId || `img_${propertyId}_${idx}`,
-      sort_order: idx,
-    }));
+    const rows = images.map((img, idx) => {
+      const urlLength = img.url ? img.url.length : 0;
+      if (urlLength > 1000000) {
+        console.warn(`[replaceImages] Image ${idx} has URL length ${urlLength} bytes (${(urlLength / 1048576).toFixed(2)}MB)`);
+      }
+      return {
+        property_id: propertyId,
+        url: img.url,
+        public_id: img.publicId || `img_${propertyId}_${idx}`,
+        sort_order: idx,
+      };
+    });
 
     const { data, error } = await supabaseClient
       .from('property_images')
       .insert(rows)
       .select();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[replaceImages] Insert error:', error);
+      throw error;
+    }
+
+    console.log(`[replaceImages] Successfully inserted ${(data || []).length} images for property ${propertyId}`);
     return (data || []) as PropertyImage[];
   },
 
@@ -394,6 +451,7 @@ export const propertyRepository = {
     if (updates.bathrooms !== undefined) updatePayload.bathrooms = updates.bathrooms;
     if (updates.area !== undefined) updatePayload.area = updates.area;
     if (updates.maxArea !== undefined) updatePayload.max_area = updates.maxArea;
+    if (updates.areaUnit !== undefined) updatePayload.area_unit = updates.areaUnit;
     if (updates.amenities) updatePayload.amenities = updates.amenities;
     if (updates.videoUrl !== undefined) updatePayload.video_url = updates.videoUrl;
     if (updates.address !== undefined) updatePayload.address = updates.address;
@@ -504,6 +562,16 @@ export const propertyRepository = {
     }
     if (filters?.areaMax !== undefined) {
       query = query.lte('area', filters.areaMax);
+    }
+    if (filters?.keyword) {
+      const kw = filters.keyword;
+      const orFilters = [
+        `title.ilike.%${kw}%`,
+        `description.ilike.%${kw}%`,
+        `city.ilike.%${kw}%`,
+        `address.ilike.%${kw}%`
+      ];
+      query = query.or(orFilters.join(','));
     }
 
     const { count, error } = await query;

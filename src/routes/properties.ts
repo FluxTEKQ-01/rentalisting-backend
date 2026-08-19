@@ -21,7 +21,7 @@ import {
 
 const router = Router();
 
-router.get('/', validate(propertyQuerySchema), getProperties);
+router.get('/', optionalAuthenticate, validate(propertyQuerySchema), getProperties);
 router.get('/my-listings', authenticate, authorize('owner'), getOwnerProperties);
 router.get('/:id', optionalAuthenticate, getPropertyById);
 router.post('/:id/contact', contactPropertyOwner);

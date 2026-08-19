@@ -4,6 +4,7 @@ import { userRepository } from '../repositories/userRepository.js';
 import { notificationRepository } from '../repositories/notificationRepository.js';
 import { sendSuccess, sendError, sendPaginated } from '../utils/apiResponse.js';
 import { serializeProperty, serializeProperties } from '../utils/serializers.js';
+import { parseIndianCurrency } from '../utils/currencyParser.js';
 import type { AuthRequest, PropertyQuery } from '../types/index.js';
 import { isDatabaseConnected } from '../config/db.js';
 
@@ -218,22 +219,35 @@ export async function createProperty(
   res: Response
 ): Promise<void> {
   try {
-    let { title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea, amenities, videoUrl, location, images } = req.body;
-    
+    let { title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea, areaUnit, amenities, videoUrl, location, images } = req.body;
+
+    console.log(`[createProperty] Creating property: ${title}, ${images?.length || 0} images provided`);
+
     // Auto-configure photos if listing manager leaves it blank
     if (!images || images.length === 0) {
+      console.log(`[createProperty] No images provided, using fallback images for type: ${propertyType}`);
       images = getFallbackImagesForPropertyType(propertyType);
+    } else {
+      console.log(`[createProperty] Using ${images.length} uploaded images`);
+      images.forEach((img: any, idx: number) => {
+        const urlLength = img.url ? img.url.length : 0;
+        console.log(`  Image ${idx}: URL length = ${urlLength} bytes`);
+      });
     }
 
     if (location) {
       location.coordinates = resolvePropertyCoordinates(location);
     }
 
+    const parsedPrice = parseIndianCurrency(price);
+    const parsedMaxPrice = maxPrice !== undefined && maxPrice !== null ? parseIndianCurrency(maxPrice) : undefined;
+    const parsedArea = typeof area === 'string' ? (parseFloat(area) || 0) : (Number(area) || 0);
+
     if (!isDatabaseConnected) {
       initInMemoryStore();
       const property = {
         _id: `mock_p_${Date.now()}`,
-        title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea,
+        title, description, propertyType, price: parsedPrice, maxPrice: parsedMaxPrice, bedrooms, bathrooms, area: parsedArea, maxArea, areaUnit: areaUnit || 'sqft',
         amenities, videoUrl, location, images,
         owner: req.user?.userId || 'mock_owner_user_id',
         status: 'draft',
@@ -246,12 +260,13 @@ export async function createProperty(
     }
 
     const property = await propertyRepository.create({
-      title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea,
+      title, description, propertyType, price: parsedPrice, maxPrice: parsedMaxPrice, bedrooms, bathrooms, area: parsedArea, maxArea, areaUnit: areaUnit || 'sqft',
       amenities, videoUrl, address: location.address, city: location.city, state: location.state, zipCode: location.zipCode,
       lat: location.coordinates?.lat, lng: location.coordinates?.lng,
       images,
       owner_id: req.user!.userId,
     });
+    console.log(`[createProperty] Property created with ID: ${property.id}, images: ${property.images?.length || 0}`);
     sendSuccess(res, { property: serializeProperty(property) }, 'Property created', 201);
   } catch (error: any) {
     console.error('Property creation error:', error);
@@ -271,14 +286,41 @@ const PROPERTY_TYPE_ENUM = new Set([
 
 // Legacy/shorthand aliases accepted from URLs, mapped onto real enum values
 const PROPERTY_TYPE_ALIASES: Record<string, string[]> = {
-  house: ['house_apartment', 'apartment'],
+  house: ['house_apartment', 'apartment', 'villa'],
+  houses: ['house_apartment', 'apartment', 'villa'],
   apartments: ['house_apartment', 'apartment'],
   house_apartment: ['house_apartment', 'apartment'],
   apartment: ['house_apartment', 'apartment'],
-  shop: ['shop_retail'],
-  retail: ['shop_retail'],
+  villa: ['villa', 'house_apartment'],
+  villas: ['villa', 'house_apartment'],
+  shop: ['shop_retail', 'showroom'],
+  shops: ['shop_retail', 'showroom'],
+  retail: ['shop_retail', 'showroom'],
+  shop_retail: ['shop_retail', 'showroom'],
+  showroom: ['showroom', 'shop_retail'],
+  showrooms: ['showroom', 'shop_retail'],
   plot: ['open_plot_land'],
+  plots: ['open_plot_land'],
   land: ['open_plot_land'],
+  lands: ['open_plot_land'],
+  open_plot_land: ['open_plot_land'],
+  'open-plots': ['open_plot_land'],
+  'open-plot-land': ['open_plot_land'],
+  office: ['office', 'coworking', 'commercial_building'],
+  offices: ['office', 'coworking', 'commercial_building'],
+  coworking: ['coworking', 'office'],
+  'co-working': ['coworking', 'office'],
+  commercial: ['commercial_building', 'office', 'coworking', 'shop_retail', 'showroom'],
+  commercial_building: ['commercial_building', 'office'],
+  warehouse: ['warehouse', 'storage', 'industrial'],
+  warehouses: ['warehouse', 'storage', 'industrial'],
+  industrial: ['industrial', 'warehouse'],
+  storage: ['storage', 'warehouse'],
+  event_venue: ['event_venue', 'hotel_banquet'],
+  event: ['event_venue', 'hotel_banquet'],
+  hotel_banquet: ['hotel_banquet', 'event_venue'],
+  hotel: ['hotel_banquet'],
+  parking: ['parking'],
 };
 
 export function expandPropertyTypes(typeQuery: string): string[] {
@@ -286,7 +328,9 @@ export function expandPropertyTypes(typeQuery: string): string[] {
   const typesSet = new Set<string>();
 
   for (const t of rawTypes) {
-    for (const mapped of PROPERTY_TYPE_ALIASES[t] || [t]) {
+    const directMatch = PROPERTY_TYPE_ENUM.has(t);
+    if (directMatch) typesSet.add(t);
+    for (const mapped of PROPERTY_TYPE_ALIASES[t] || []) {
       if (PROPERTY_TYPE_ENUM.has(mapped)) typesSet.add(mapped);
     }
   }
@@ -317,9 +361,9 @@ export async function getProperties(
         list = list.filter(p => statuses.includes(p.status));
       } else if (req.user?.role !== 'admin') {
         if (req.user?.role === 'owner') {
-          list = list.filter(p => p.status === 'published' || p.owner === req.user?.userId || p.owner?._id === req.user?.userId);
+          list = list.filter(p => p.status === 'published' || p.status === 'approved' || p.owner === req.user?.userId || p.owner?._id === req.user?.userId);
         } else {
-          list = list.filter(p => p.status === 'published');
+          list = list.filter(p => p.status === 'published' || p.status === 'approved');
         }
       }
       if (query.keyword) {
@@ -345,13 +389,20 @@ export async function getProperties(
       if (query.status) {
         filters.status = query.status.includes(',') ? query.status.split(',') : query.status;
       }
-    } else if (!req.user?.role) {
-      // Anonymous visitors must only ever see published listings
-      filters.status = 'published';
-    } else if (req.user.role === 'owner') {
-      filters.status = query.status ? query.status.split(',').concat(['published']) : ['published'];
+    } else if (req.user?.role === 'owner') {
+      if (query.status) {
+        filters.status = query.status.includes(',') ? query.status.split(',') : query.status;
+      } else {
+        filters.status = ['published', 'approved'];
+      }
     } else {
-      filters.status = 'published';
+      // Anonymous visitors and standard visitors can view published and approved
+      if (query.status) {
+        const statuses = query.status.split(',').filter(s => s === 'published' || s === 'approved');
+        filters.status = statuses.length > 0 ? statuses : ['published', 'approved'];
+      } else {
+        filters.status = ['published', 'approved'];
+      }
     }
 
     if (query.owner) filters.owner_id = query.owner;
@@ -416,7 +467,17 @@ export async function getProperties(
       propertyRepository.countDocuments(filters),
     ]);
 
-    sendPaginated(res, serializeProperties(properties), total, page, limit);
+    console.log(`[getProperties] Fetched ${properties.length} properties (status: ${JSON.stringify(filters.status)}, images attached: ${properties.map(p => p.images?.length || 0).join(',')})`);
+
+    // Debug: Log property IDs and image counts
+    properties.forEach((p, idx) => {
+      console.log(`  Property ${idx}: id=${p.id}, images=${p.images?.length || 0}, title=${p.title}`);
+    });
+
+    const serialized = serializeProperties(properties);
+    console.log(`[getProperties] After serialization: ${serialized.length} properties with images: ${serialized.map(p => p.images?.length || 0).join(',')}`);
+
+    sendPaginated(res, serialized, total, page, limit);
   } catch (error: any) {
     // Supabase errors carry code/details/hint rather than a useful `message`,
     // so log the parts explicitly instead of an empty-looking object.
@@ -476,7 +537,7 @@ export async function updateProperty(
   res: Response
 ): Promise<void> {
   try {
-    let { title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea, amenities, videoUrl, location, images } = req.body;
+    let { title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea, areaUnit, amenities, videoUrl, location, images } = req.body;
 
     if (!isDatabaseConnected) {
       initInMemoryStore();
@@ -497,6 +558,7 @@ export async function updateProperty(
         bathrooms: bathrooms ?? existing.bathrooms,
         area: area ?? existing.area,
         maxArea: maxArea ?? existing.maxArea,
+        areaUnit: areaUnit ?? existing.areaUnit,
         amenities: amenities ?? existing.amenities,
         videoUrl: videoUrl ?? existing.videoUrl,
         location: location ? { ...existing.location, ...location } : existing.location,
@@ -533,12 +595,13 @@ export async function updateProperty(
     if (title !== undefined) updateData.title = title;
     if (description !== undefined) updateData.description = description;
     if (propertyType !== undefined) updateData.propertyType = propertyType;
-    if (price !== undefined) updateData.price = price;
-    if (maxPrice !== undefined) updateData.maxPrice = maxPrice;
+    if (price !== undefined) updateData.price = parseIndianCurrency(price);
+    if (maxPrice !== undefined) updateData.maxPrice = maxPrice !== null ? parseIndianCurrency(maxPrice) : null;
     if (bedrooms !== undefined) updateData.bedrooms = bedrooms;
     if (bathrooms !== undefined) updateData.bathrooms = bathrooms;
-    if (area !== undefined) updateData.area = area;
+    if (area !== undefined) updateData.area = typeof area === 'string' ? (parseFloat(area) || 0) : (Number(area) || 0);
     if (maxArea !== undefined) updateData.maxArea = maxArea;
+    if (areaUnit !== undefined) updateData.areaUnit = areaUnit;
     if (amenities !== undefined) updateData.amenities = amenities;
     if (videoUrl !== undefined) updateData.videoUrl = videoUrl;
     if (location !== undefined) {
@@ -560,8 +623,16 @@ export async function updateProperty(
 
     // Images live in a child table, so they need their own write
     if (Array.isArray(images)) {
-      updatedProperty.images = await propertyRepository.replaceImages(id, images);
+      console.log(`[updateProperty] Updating ${images.length} images for property ${id}`);
+      try {
+        updatedProperty.images = await propertyRepository.replaceImages(id, images);
+        console.log(`[updateProperty] Successfully updated images for property ${id}`);
+      } catch (imageError) {
+        console.error(`[updateProperty] Failed to update images for property ${id}:`, imageError);
+        throw imageError;
+      }
     } else {
+      console.log(`[updateProperty] Fetching existing images for property ${id}`);
       updatedProperty.images = await propertyRepository.getImages(id);
     }
 
@@ -659,18 +730,19 @@ export async function resubmitProperty(
       return;
     }
 
-    const { title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea, amenities, videoUrl, location, images } = req.body;
+    const { title, description, propertyType, price, maxPrice, bedrooms, bathrooms, area, maxArea, areaUnit, amenities, videoUrl, location, images } = req.body;
 
     const updates: any = {};
     if (title) updates.title = title;
     if (description) updates.description = description;
     if (propertyType) updates.propertyType = propertyType;
-    if (price !== undefined) updates.price = price;
-    if (maxPrice !== undefined) updates.maxPrice = maxPrice;
+    if (price !== undefined) updates.price = parseIndianCurrency(price);
+    if (maxPrice !== undefined) updates.maxPrice = maxPrice !== null ? parseIndianCurrency(maxPrice) : null;
     if (bedrooms !== undefined) updates.bedrooms = bedrooms;
     if (bathrooms !== undefined) updates.bathrooms = bathrooms;
-    if (area !== undefined) updates.area = area;
+    if (area !== undefined) updates.area = typeof area === 'string' ? (parseFloat(area) || 0) : (Number(area) || 0);
     if (maxArea !== undefined) updates.maxArea = maxArea;
+    if (areaUnit !== undefined) updates.areaUnit = areaUnit;
     if (amenities) updates.amenities = amenities;
     if (videoUrl !== undefined) updates.videoUrl = videoUrl;
     if (location) {
